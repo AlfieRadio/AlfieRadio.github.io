@@ -1,0 +1,46 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>頻道 Hashtag 統計</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <header>
+    <div class="head-row">
+      <h1 id="channel-title">頻道 Hashtag 統計</h1>
+      <span id="fetched-at" class="muted"></span>
+    </div>
+    <div id="overview" class="overview"></div>
+
+    <div class="range-bar">
+      <span class="range-label">日期範圍</span>
+      <input type="date" id="range-from">
+      <span>—</span>
+      <input type="date" id="range-to">
+      <div class="quick">
+        <button data-days="7">近 7 天</button>
+        <button data-days="30" class="active">近 30 天</button>
+        <button data-days="0">全部</button>
+      </div>
+      <span id="range-count" class="muted"></span>
+    </div>
+  </header>
+
+  <nav class="tabs">
+    <button class="tab active" data-tab="rank">① Hashtag 排行</button>
+    <button class="tab" data-tab="day">② 歷史回顧(每日)</button>
+    <button class="tab" data-tab="week">③ 週整理</button>
+  </nav>
+
+  <main>
+    <section id="tab-rank" class="panel active"></section>
+    <section id="tab-day" class="panel"></section>
+    <section id="tab-week" class="panel"></section>
+  </main>
+
+  <script src="data.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
