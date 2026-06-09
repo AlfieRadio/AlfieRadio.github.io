@@ -180,6 +180,10 @@ function renderDay() {
     it.addEventListener("click", () => { selectedDay = it.dataset.date; renderDay(); });
   });
 
+  // 手機版:日期清單是橫向膠囊條,把選中的捲進可見範圍(不動到頁面垂直捲動)
+  const activeItem = el.querySelector(".day-item.active");
+  if (activeItem) activeItem.scrollIntoView({ block: "nearest", inline: "center" });
+
   renderDayContent(base.filter(m => m.local_date === selectedDay));
 }
 function renderDayContent(dayMsgs) {
