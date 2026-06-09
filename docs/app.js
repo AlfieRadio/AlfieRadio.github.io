@@ -88,8 +88,9 @@ function renderRank() {
   });
 }
 
-// ===== 分頁② 歷史回顧(每日) =====
+// ===== 分頁② 每日內容(歷史回顧) =====
 let selectedDay = null;
+let dayTagFilter = null;   // 當日內容的 hashtag 篩選(小寫;null = 全部)
 function renderDay() {
   const el = document.getElementById("tab-day");
   const msgs = filtered();
@@ -118,10 +119,10 @@ function renderDay() {
     </div>`;
 
   el.querySelector("#day-input").addEventListener("change", e => {
-    if (e.target.value) { selectedDay = e.target.value; renderDay(); }
+    if (e.target.value) { selectedDay = e.target.value; dayTagFilter = null; renderDay(); }
   });
   el.querySelectorAll(".day-item").forEach(it => {
-    it.addEventListener("click", () => { selectedDay = it.dataset.date; renderDay(); });
+    it.addEventListener("click", () => { selectedDay = it.dataset.date; dayTagFilter = null; renderDay(); });
   });
 
   renderDayContent(msgs.filter(m => m.local_date === selectedDay));
@@ -130,17 +131,31 @@ function renderDayContent(dayMsgs) {
   const box = document.getElementById("day-content");
   if (!dayMsgs.length) { box.innerHTML = `<div class="empty">這天沒有訊息。</div>`; return; }
   const rank = computeRanking(dayMsgs);
-  const summary = rank.length
-    ? `<div class="day-summary">${rank.map(r => `<span class="chip">${escapeHtml(r.display)} ×${r.count}</span>`).join("")}</div>`
-    : "";
-  box.innerHTML =
-    `<div class="section-title">${selectedDay} ・ 共 ${dayMsgs.length} 則</div>` +
-    summary +
-    dayMsgs.slice().sort((a, b) => b.id - a.id).map(renderMsg).join("");
+
+  let shown = dayMsgs;
+  if (dayTagFilter) shown = dayMsgs.filter(m => (m.hashtags || []).some(t => t.toLowerCase() === dayTagFilter));
+
+  const allChip = `<span class="chip filter-chip${dayTagFilter ? "" : " active"}" data-tag="">全部</span>`;
+  const tagChips = rank.map(r =>
+    `<span class="chip filter-chip${dayTagFilter === r.display.toLowerCase() ? " active" : ""}" data-tag="${r.display.toLowerCase()}">${escapeHtml(r.display)} ×${r.count}</span>`
+  ).join("");
+
+  const head = `<div class="section-title">${selectedDay} ・ 共 ${dayMsgs.length} 則${dayTagFilter ? `,篩選「${escapeHtml(dayTagFilter)}」→ ${shown.length} 則` : ""}</div>`;
+
+  box.innerHTML = head + `<div class="day-summary">${allChip}${tagChips}</div>` +
+    shown.slice().sort((a, b) => b.id - a.id).map(renderMsg).join("");
+
+  box.querySelectorAll(".filter-chip").forEach(c => {
+    c.addEventListener("click", () => {
+      dayTagFilter = c.dataset.tag || null;
+      renderDayContent(dayMsgs);
+    });
+  });
 }
 
 // ===== 分頁③ 週整理 =====
 let selectedWeek = null;
+let weekTagFilter = null;   // 週整理的 hashtag 篩選(小寫;null = 全部)
 function groupByWeek(msgs) {
   const map = new Map();
   for (const m of msgs) {
@@ -166,7 +181,7 @@ function renderWeek() {
     <div id="week-content"></div>`;
 
   el.querySelectorAll(".week-tab").forEach(b => {
-    b.addEventListener("click", () => { selectedWeek = b.dataset.week; renderWeek(); });
+    b.addEventListener("click", () => { selectedWeek = b.dataset.week; weekTagFilter = null; renderWeek(); });
   });
 
   renderWeekContent(weeks.find(w => w.week === selectedWeek));
@@ -174,22 +189,36 @@ function renderWeek() {
 function renderWeekContent(week) {
   const box = document.getElementById("week-content");
   const rank = computeRanking(week.msgs);
-  const rankHtml = rank.length
-    ? rank.map(r => `<span class="chip">${escapeHtml(r.display)} ×${r.count}</span>`).join("")
+
+  let shown = week.msgs;
+  if (weekTagFilter) shown = week.msgs.filter(m => (m.hashtags || []).some(t => t.toLowerCase() === weekTagFilter));
+
+  const chipsHtml = rank.length
+    ? `<span class="chip filter-chip${weekTagFilter ? "" : " active"}" data-tag="">全部</span>` +
+      rank.map(r =>
+        `<span class="chip filter-chip${weekTagFilter === r.display.toLowerCase() ? " active" : ""}" data-tag="${r.display.toLowerCase()}">${escapeHtml(r.display)} ×${r.count}</span>`
+      ).join("")
     : `<span class="muted">本週沒有 hashtag</span>`;
 
   // 依日期分組(該週內,新 → 舊)
   const byDate = {};
-  for (const m of week.msgs) (byDate[m.local_date] ||= []).push(m);
+  for (const m of shown) (byDate[m.local_date] ||= []).push(m);
   const days = Object.keys(byDate).sort().reverse();
 
-  box.innerHTML =
-    `<div class="section-title">${week.week}(${week.range})・共 ${week.msgs.length} 則</div>
-     <div class="day-summary">${rankHtml}</div>` +
+  const head = `<div class="section-title">${week.week}(${week.range})・共 ${week.msgs.length} 則${weekTagFilter ? `,篩選「${escapeHtml(weekTagFilter)}」→ ${shown.length} 則` : ""}</div>`;
+
+  box.innerHTML = head + `<div class="day-summary">${chipsHtml}</div>` +
     days.map(d =>
       `<div class="day-group-title">${d}（${byDate[d].length} 則）</div>` +
       byDate[d].slice().sort((a, b) => b.id - a.id).map(renderMsg).join("")
     ).join("");
+
+  box.querySelectorAll(".filter-chip").forEach(c => {
+    c.addEventListener("click", () => {
+      weekTagFilter = c.dataset.tag || null;
+      renderWeekContent(week);
+    });
+  });
 }
 
 // ===== 頂部總覽 + 範圍控制 =====
@@ -218,6 +247,8 @@ function applyRangeInputs() {
   document.getElementById("range-to").value = rangeTo || "";
 }
 function rerenderAll() {
+  dayTagFilter = null;
+  weekTagFilter = null;
   renderOverview();
   renderRank();
   renderDay();
