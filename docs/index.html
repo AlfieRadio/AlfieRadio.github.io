@@ -4,6 +4,16 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>阿非電台 - 新聞相對論頻道統計</title>
+  <meta name="description" content="阿非電台 - 新聞相對論 頻道的每日內容、hashtag 排行與週整理統計,一頁掌握頻道重點。">
+  <!-- 分享預覽卡 (OpenGraph / Twitter) -->
+  <meta property="og:type" content="website">
+  <meta property="og:title" content="阿非電台 - 新聞相對論頻道統計">
+  <meta property="og:description" content="每日內容、hashtag 排行、週整理,一頁掌握頻道重點。">
+  <meta property="og:locale" content="zh_TW">
+  <meta name="twitter:card" content="summary">
+  <meta name="twitter:title" content="阿非電台 - 新聞相對論頻道統計">
+  <meta name="twitter:description" content="每日內容、hashtag 排行、週整理,一頁掌握頻道重點。">
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%234aa3ff'/%3E%3Ctext x='32' y='46' font-size='42' text-anchor='middle' fill='%23041019' font-family='sans-serif' font-weight='bold'%3E%23%3C/text%3E%3C/svg%3E">
   <link rel="stylesheet" href="styles.css">
 </head>
 <body>
@@ -15,18 +25,24 @@
     </div>
     <div id="overview" class="overview"></div>
 
-    <div class="range-bar">
-      <span class="range-label">日期範圍</span>
-      <input type="date" id="range-from">
-      <span>—</span>
-      <input type="date" id="range-to">
-      <div class="quick">
-        <button data-days="7">近 7 天</button>
-        <button data-days="30" class="active">近 30 天</button>
-        <button data-days="0">全部</button>
+    <div class="controls">
+      <div class="search-box">
+        <input type="search" id="search-input" placeholder="🔍 搜尋訊息內容或 #hashtag…" autocomplete="off">
       </div>
-      <span id="range-count" class="muted"></span>
+      <div class="range-bar">
+        <span class="range-label">日期範圍</span>
+        <input type="date" id="range-from">
+        <span>—</span>
+        <input type="date" id="range-to">
+        <div class="quick">
+          <button data-days="7">近 7 天</button>
+          <button data-days="30" class="active">近 30 天</button>
+          <button data-days="0">全部</button>
+        </div>
+        <span id="range-count" class="muted"></span>
+      </div>
     </div>
+    <div id="filter-status" class="filter-status"></div>
   </header>
 
   <nav class="tabs">
