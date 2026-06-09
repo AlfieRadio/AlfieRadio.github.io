@@ -76,6 +76,25 @@ function hasTag(m) {
 // 結構用(日期清單/週清單/排行):只套「範圍 + 搜尋」,不套 tag
 function baseFiltered() { return MSGS.filter(m => inRange(m) && matchesSearch(m)); }
 
+// ===== 連結預覽卡(Telegram 已 unfurl 的標題/摘要/網域)=====
+function renderPreview(pv) {
+  if (!pv || !(pv.title || pv.desc)) return "";
+  const href = pv.url || "";
+  const domain = pv.domain || pv.site || "";
+  const fav = domain
+    ? `<img class="pv-fav" src="https://www.google.com/s2/favicons?domain=${encodeURIComponent(domain)}&sz=64" alt="" loading="lazy" onerror="this.remove()">`
+    : "";
+  const meta = pv.site || domain;
+  return `
+    <a class="preview" href="${escapeHtml(href)}" target="_blank" rel="noopener">
+      <div class="pv-body">
+        ${meta ? `<div class="pv-domain">${fav}${escapeHtml(meta)}</div>` : ""}
+        ${pv.title ? `<div class="pv-title">${escapeHtml(pv.title)}</div>` : ""}
+        ${pv.desc ? `<div class="pv-desc">${escapeHtml(pv.desc)}</div>` : ""}
+      </div>
+    </a>`;
+}
+
 // ===== 訊息卡片 =====
 const LONG_TEXT = 240;
 function renderMsg(m, showDate = true) {
@@ -96,6 +115,7 @@ function renderMsg(m, showDate = true) {
         <a class="msg-link" href="${escapeHtml(m.link)}" target="_blank" rel="noopener">在 Telegram 開啟 ↗</a>
       </div>
       ${textBlock}
+      ${renderPreview(m.preview)}
       ${tagChips ? `<div class="chips">${tagChips}</div>` : ""}
     </div>`;
 }

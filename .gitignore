@@ -6,6 +6,7 @@ data/
 
 # Claude Code 本機設定 / 開發筆記(個人,不上傳)
 .claude/settings.local.json
+.claude/launch.json
 CLAUDE.md
 _smoke*.js
 

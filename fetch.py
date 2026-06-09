@@ -14,6 +14,7 @@ import sys
 import json
 from datetime import datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
+from urllib.parse import urlparse
 
 from dotenv import load_dotenv
 from telethon.sync import TelegramClient
@@ -81,6 +82,41 @@ def load_existing():
     return {}
 
 
+DESC_MAX = 300  # 摘要截斷長度,避免 data.js 過肥
+
+
+def extract_preview(msg):
+    """取出 Telegram 已經 unfurl 好的連結預覽(標題/摘要/網域)。
+
+    這是頻道 App 裡看到的那張卡片,Telegram 早就抓好了,我們只是讀出來,
+    全程唯讀、不需自己去爬新聞站(也就避開瀏覽器端 CORS 問題)。
+    縮圖存在 Telegram CDN、需下載成檔案,刻意不取,維持純文字卡、repo 不變肥。
+    """
+    wp = getattr(msg, "web_preview", None)
+    if wp is None:
+        return None
+    url = getattr(wp, "url", None) or getattr(wp, "display_url", None)
+    title = getattr(wp, "title", None)
+    desc = getattr(wp, "description", None)
+    if not (title or desc):  # WebPageEmpty / Pending:沒有可顯示內容
+        return None
+    if desc and len(desc) > DESC_MAX:
+        desc = desc[:DESC_MAX].rstrip() + "…"
+    domain = ""
+    if url:
+        try:
+            domain = urlparse(url).netloc.replace("www.", "")
+        except Exception:
+            domain = ""
+    return {
+        "url": url,
+        "domain": domain,
+        "site": getattr(wp, "site_name", None),
+        "title": title,
+        "desc": desc,
+    }
+
+
 def serialize(msg, channel_id):
     text = msg.message or ""
     tags = HASHTAG_RE.findall(text)
@@ -99,6 +135,7 @@ def serialize(msg, channel_id):
         "hashtags": tags,
         "text": text,
         "link": f"https://t.me/c/{channel_id}/{msg.id}",
+        "preview": extract_preview(msg),
     }
 
 
@@ -112,26 +149,45 @@ def main():
 
         existing = load_existing()
         min_id = max(existing.keys()) if existing else 0
-
-        cutoff = datetime.now(timezone.utc) - timedelta(days=INITIAL_DAYS)
-        if min_id:
-            print(f"→ 增量更新:抓取 id > {min_id} 的新訊息…")
-            iterator = client.iter_messages(channel, min_id=min_id)
-        else:
-            print(f"→ 初次回補:抓取最近 {INITIAL_DAYS} 天…")
-            iterator = client.iter_messages(channel)
+        backfill = os.getenv("BACKFILL_PREVIEWS") == "1"
 
         new = {}
-        for msg in iterator:
-            if not min_id and msg.date < cutoff:
-                break  # 回補到指定天數就停
-            if not (msg.message and msg.message.strip()):
-                continue  # 跳過純媒體 / 系統訊息
-            new[msg.id] = serialize(msg, cid)
-            if len(new) % 200 == 0:
-                print(f"  …已處理 {len(new)} 則")
+        changed = 0
+        if backfill:
+            # 一次性:重掃全部訊息,替既有訊息補 preview(同時也會帶進任何新訊息)。
+            print("→ Backfill 連結預覽:重掃既有訊息補 preview 欄位…")
+            for msg in client.iter_messages(channel):
+                if not (msg.message and msg.message.strip()):
+                    continue
+                e = existing.get(msg.id)
+                if e is not None and "preview" in e:
+                    continue  # 已處理過,跳過
+                if e is not None:
+                    e["preview"] = extract_preview(msg)  # 補欄位(可能為 None)
+                else:
+                    new[msg.id] = serialize(msg, cid)
+                changed += 1
+                if changed % 200 == 0:
+                    print(f"  …已處理 {changed} 則")
+        else:
+            cutoff = datetime.now(timezone.utc) - timedelta(days=INITIAL_DAYS)
+            if min_id:
+                print(f"→ 增量更新:抓取 id > {min_id} 的新訊息…")
+                iterator = client.iter_messages(channel, min_id=min_id)
+            else:
+                print(f"→ 初次回補:抓取最近 {INITIAL_DAYS} 天…")
+                iterator = client.iter_messages(channel)
 
-        if not new and os.path.exists(MESSAGES_JSON):
+            for msg in iterator:
+                if not min_id and msg.date < cutoff:
+                    break  # 回補到指定天數就停
+                if not (msg.message and msg.message.strip()):
+                    continue  # 跳過純媒體 / 系統訊息
+                new[msg.id] = serialize(msg, cid)
+                if len(new) % 200 == 0:
+                    print(f"  …已處理 {len(new)} 則")
+
+        if not new and not changed and os.path.exists(MESSAGES_JSON):
             print("✓ 沒有新訊息,維持原狀(不重寫檔案、不觸發推送)。")
             return
 
@@ -151,7 +207,10 @@ def main():
             json.dump(out, f, ensure_ascii=False)
             f.write(";\n")
 
-        print(f"✓ 本次新增 {len(new)} 則,總計 {len(messages)} 則。")
+        if backfill:
+            print(f"✓ Backfill 完成:處理 {changed} 則(含新增 {len(new)} 則),總計 {len(messages)} 則。")
+        else:
+            print(f"✓ 本次新增 {len(new)} 則,總計 {len(messages)} 則。")
         print(f"✓ 已更新:{MESSAGES_JSON}")
         print(f"✓ 用瀏覽器開啟 docs/index.html 即可查看統計。")
 
