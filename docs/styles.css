@@ -30,6 +30,11 @@ header {
 }
 
 .head-row { display: flex; align-items: baseline; gap: 14px; flex-wrap: wrap; }
+.source-link {
+  margin-left: auto; font-size: 13px; color: var(--accent); text-decoration: none;
+  border: 1px solid var(--border); padding: 5px 12px; border-radius: 14px; white-space: nowrap;
+}
+.source-link:hover { background: var(--surface-2); }
 h1 { font-size: 19px; margin: 0; }
 .muted { color: var(--muted); font-size: 13px; }
 

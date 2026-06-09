@@ -194,8 +194,9 @@ function renderWeekContent(week) {
 
 // ===== 頂部總覽 + 範圍控制 =====
 function renderOverview() {
-  document.getElementById("channel-title").textContent =
-    (DATA.channel && DATA.channel.title) ? `${DATA.channel.title} ・ Hashtag 統計` : "頻道 Hashtag 統計";
+  const pageTitle = (DATA.channel && DATA.channel.title) ? `${DATA.channel.title}頻道統計` : "頻道統計";
+  document.getElementById("channel-title").textContent = pageTitle;
+  document.title = pageTitle;
   if (DATA.fetched_at) {
     document.getElementById("fetched-at").textContent =
       "更新於 " + DATA.fetched_at.replace("T", " ").slice(0, 16);

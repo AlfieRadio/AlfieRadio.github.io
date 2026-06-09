@@ -20,6 +20,14 @@ from telethon.sync import TelegramClient
 from telethon.tl.functions.messages import CheckChatInviteRequest
 from telethon.tl.types import ChatInviteAlready
 
+# 在排程/管線環境(stdout 非主控台)下,Windows 預設 cp950 會讓中文/符號輸出爆掉。
+# 強制 UTF-8 輸出,避免 UnicodeEncodeError 害整個抓取失敗。
+try:
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+    sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+except Exception:
+    pass
+
 load_dotenv()
 
 API_ID = os.getenv("TG_API_ID")
