@@ -131,6 +131,10 @@ def main():
             if len(new) % 200 == 0:
                 print(f"  …已處理 {len(new)} 則")
 
+        if not new and os.path.exists(MESSAGES_JSON):
+            print("✓ 沒有新訊息,維持原狀(不重寫檔案、不觸發推送)。")
+            return
+
         existing.update(new)
         messages = sorted(existing.values(), key=lambda m: m["id"])
         out = {
