@@ -154,21 +154,24 @@ def main():
         new = {}
         changed = 0
         if backfill:
-            # 一次性:重掃全部訊息,替既有訊息補 preview(同時也會帶進任何新訊息)。
-            print("→ Backfill 連結預覽:重掃既有訊息補 preview 欄位…")
+            # 一次性:替「既有訊息」補 preview 欄位。
+            # 只回補既有訊息,絕不吸收頻道歷史(掃到比既有最小 id 更舊就停)。
+            if not existing:
+                print("✗ 沒有既有資料可回補;請先正常跑一次 fetch.py。")
+                return
+            low = min(existing.keys())
+            todo = sum(1 for e in existing.values() if "preview" not in e)
+            print(f"→ Backfill 連結預覽:回補 {todo} 則既有訊息(不抓新歷史)…")
             for msg in client.iter_messages(channel):
-                if not (msg.message and msg.message.strip()):
-                    continue
+                if msg.id < low:
+                    break  # 已低於既有最小 id,沒必要再往下掃
                 e = existing.get(msg.id)
-                if e is not None and "preview" in e:
-                    continue  # 已處理過,跳過
-                if e is not None:
-                    e["preview"] = extract_preview(msg)  # 補欄位(可能為 None)
-                else:
-                    new[msg.id] = serialize(msg, cid)
+                if e is None or "preview" in e:
+                    continue  # 不在清單 / 已處理過
+                e["preview"] = extract_preview(msg)  # 補欄位(可能為 None)
                 changed += 1
                 if changed % 200 == 0:
-                    print(f"  …已處理 {changed} 則")
+                    print(f"  …已回補 {changed}/{todo} 則")
         else:
             cutoff = datetime.now(timezone.utc) - timedelta(days=INITIAL_DAYS)
             if min_id:
