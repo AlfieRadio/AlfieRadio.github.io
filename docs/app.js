@@ -10,7 +10,11 @@ const MAX_DATE = ALL_DATES[ALL_DATES.length - 1] || null;
 function addDays(dateStr, n) {
   const d = new Date(dateStr + "T00:00:00");
   d.setDate(d.getDate() + n);
-  return d.toISOString().slice(0, 10);
+  // 用本地日期欄位組字串,避免 toISOString() 轉 UTC 在 +8 時區倒退一天
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
 }
 // 以頻道時區計算「今天 / 昨天」
 const TODAY = new Intl.DateTimeFormat("en-CA", { timeZone: TZ }).format(new Date());
