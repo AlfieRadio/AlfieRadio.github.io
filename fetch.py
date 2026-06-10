@@ -150,10 +150,30 @@ def main():
         existing = load_existing()
         min_id = max(existing.keys()) if existing else 0
         backfill = os.getenv("BACKFILL_PREVIEWS") == "1"
+        older_days = int(os.getenv("FETCH_OLDER_DAYS") or 0)
 
         new = {}
         changed = 0
-        if backfill:
+        if older_days:
+            # 一次性「往回回補」:抓比現有最舊更舊的訊息,以「再往前 older_days 天」為界。
+            # 用 offset_id 只往更舊的方向走 + 日期界線,避免無界吸光整個頻道歷史。
+            if not existing:
+                print("✗ 沒有既有資料;請先正常跑一次 fetch.py。")
+                return
+            oldest_id = min(existing.keys())
+            oldest = existing[oldest_id]
+            cutoff = datetime.fromisoformat(oldest["date_utc"]) - timedelta(days=older_days)
+            cutoff_local = cutoff.astimezone(LOCAL_TZ).date()
+            print(f"→ 往回回補:從 {oldest['local_date']}(id<{oldest_id})再往前 {older_days} 天(到 ~{cutoff_local})…")
+            for msg in client.iter_messages(channel, offset_id=oldest_id):
+                if msg.date < cutoff:
+                    break  # 抵達目標日期界線就停
+                if not (msg.message and msg.message.strip()):
+                    continue  # 跳過純媒體 / 系統訊息
+                new[msg.id] = serialize(msg, cid)
+                if len(new) % 200 == 0:
+                    print(f"  …已抓 {len(new)} 則")
+        elif backfill:
             # 一次性:替「既有訊息」補 preview 欄位。
             # 只回補既有訊息,絕不吸收頻道歷史(掃到比既有最小 id 更舊就停)。
             if not existing:
