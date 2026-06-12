@@ -1,7 +1,14 @@
 # 頻道 Hashtag 統計
 
-從 Telegram 頻道(含私人頻道)定期抓訊息,解析 hashtag,產生一個離線統計網頁:
-**① Hashtag 出現次數排行**、**② 歷史回顧(選日期看當天內容)**、**③ 週整理(分頁)**。
+從 Telegram 頻道(含私人頻道)定期抓訊息、解析 hashtag,產生一個**公開的純靜態統計網頁**:
+
+> 🌐 線上版:**<https://alfieradio.github.io/>**(GitHub Pages,自動更新)
+
+功能:**① 每日內容**(選日期回顧當天訊息)、**② Hashtag 排行**(點擊可篩選)、
+**③ 週整理**、**全文搜尋**(含連結預覽卡的標題/摘要)、**日期範圍篩選**、
+**連結預覽卡**(網址訊息直接顯示新聞標題與摘要,來自 Telegram 已抓好的預覽,全程唯讀)。
+
+抓取**全程唯讀**:只讀訊息,絕不發送、修改、刪除頻道任何內容。
 
 ---
 
@@ -36,37 +43,39 @@ python fetch.py
 - 會回補最近 `INITIAL_DAYS` 天的訊息。
 
 ### 5. 看結果
-用瀏覽器開啟 **`web/index.html`**(直接點兩下即可)。
+用瀏覽器開啟 **`docs/index.html`**(直接點兩下即可),或部署後看線上版。
 
 ---
 
-## 二、之後每天更新
+## 二、之後的更新
 
-直接再跑一次就好,只會抓「上次之後」的新訊息(增量、很快):
+### 自動(已設定)
+Windows 工作排程「AlfieRadio Hashtag Update」**每小時**跑一次 `run_daily.bat`:
+抓新訊息 → `docs/data.js` 有變更才 commit + push → GitHub Pages 自動重建(約 1–2 分鐘)。
+沒有新訊息就什麼都不做(不寫檔、不 push)。
+
+### 手動
 ```powershell
 python fetch.py
 ```
-或點兩下 **`run_daily.bat`**。
+或點兩下 **`run_daily.bat`**(會順便 commit + push)。
 
----
-
-## 三、設定每天自動跑(Windows 工作排程器)
-
-1. 開「工作排程器」→ 建立基本工作
-2. 觸發程序:每天、選一個時間(例如晚上 11:00)
-3. 動作:啟動程式 → 程式選 `run_daily.bat`(完整路徑)
-4. 完成。之後每天會自動更新資料,你開 `web/index.html` 就是最新的。
-
-> 自動排程能成立的前提是第 4 步已經登入過一次(session 已存在)。
+### 往回補更早的歷史
+```powershell
+$env:FETCH_OLDER_DAYS=30; python fetch.py
+```
+以現有最舊訊息為起點,再往前抓 N 天(一次性,跑完記得清掉環境變數)。
 
 ---
 
 ## 檔案說明
 | 檔案 | 用途 |
 |------|------|
-| `fetch.py` | 抓訊息、解析 hashtag、輸出資料 |
-| `.env` | 你的 api 憑證與頻道設定(自己建立) |
-| `data/messages.json` | 累積的訊息資料(原始檔) |
-| `web/index.html` | 統計網頁(用瀏覽器開) |
-| `web/data.js` | 給網頁讀的資料(每次 fetch 自動產生) |
-| `run_daily.bat` | 一鍵更新 |
+| `fetch.py` | 抓訊息、解析 hashtag、輸出資料(唯讀) |
+| `.env` | 你的 API 憑證與頻道設定(自己建立,不進 git) |
+| `data/messages.json` | 累積的訊息原始檔(不進 git) |
+| `docs/` | 公開網頁:`index.html` / `app.js` / `styles.css` / `data.js` |
+| `docs/data.js` | 給網頁讀的資料(每次 fetch 自動產生) |
+| `run_daily.bat` | 一鍵更新 + 推送 |
+| `DEPLOY.md` | GitHub Pages 部署步驟與隱私備忘 |
+| `ROADMAP.md` | 長期擴展路線(分片 / 全文搜尋存檔庫) |

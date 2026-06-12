@@ -43,15 +43,13 @@ git push -u origin main
 
 ---
 
-## D. 每天自動更新
+## D. 自動更新(目前設定:每小時)
 
-`run_daily.bat` 會:抓新訊息 → 把 `docs/data.js` commit → `git push`。
+`run_daily.bat` 會:抓新訊息 → `docs/data.js` 有變更才 commit → `git push`(沒變更就跳過)。
 GitHub 一收到更新,Pages 會自動重建,網站就是最新的。
 
-設定 Windows 工作排程器:
-1. 「工作排程器」→ 建立基本工作 → 每天、選時間(例如 23:00)。
-2. 動作:啟動程式 → 選 `run_daily.bat` 完整路徑。
-3. 完成。
+Windows 工作排程器已設定「**AlfieRadio Hashtag Update**」:每小時跑一次 `run_daily.bat`,
+使用電池時也跑、錯過排程會補跑。要改頻率直接在工作排程器裡調整觸發程序即可。
 
 > 讓排程能無人值守 push:第一次手動 `git push` 時,Windows 的 Git Credential Manager 會跳一次登入,
 > 登入後會記住,之後排程就能自動推。

@@ -67,7 +67,12 @@ function inRange(m) {
 function matchesSearch(m) {
   if (!searchTerm) return true;
   if ((m.text || "").toLowerCase().includes(searchTerm)) return true;
-  return (m.hashtags || []).some(t => t.toLowerCase().includes(searchTerm));
+  if ((m.hashtags || []).some(t => t.toLowerCase().includes(searchTerm))) return true;
+  // 純網址訊息靠預覽卡顯示新聞標題/摘要,搜尋也要涵蓋,否則「看得到、搜不到」
+  const pv = m.preview;
+  if (!pv) return false;
+  return (pv.title || "").toLowerCase().includes(searchTerm) ||
+         (pv.desc || "").toLowerCase().includes(searchTerm);
 }
 function hasTag(m) {
   if (!tagFilter) return true;
@@ -89,8 +94,8 @@ function renderPreview(pv) {
     <a class="preview" href="${escapeHtml(href)}" target="_blank" rel="noopener">
       <div class="pv-body">
         ${meta ? `<div class="pv-domain">${fav}${escapeHtml(meta)}</div>` : ""}
-        ${pv.title ? `<div class="pv-title">${escapeHtml(pv.title)}</div>` : ""}
-        ${pv.desc ? `<div class="pv-desc">${escapeHtml(pv.desc)}</div>` : ""}
+        ${pv.title ? `<div class="pv-title">${highlight(pv.title)}</div>` : ""}
+        ${pv.desc ? `<div class="pv-desc">${highlight(pv.desc)}</div>` : ""}
       </div>
     </a>`;
 }
