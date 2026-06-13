@@ -8,6 +8,7 @@
   --accent: #4aa3ff;
   --accent-2: #34d399;
   --chip: #2a3b52;
+  --important: #ffd54a;
 }
 
 * { box-sizing: border-box; }
@@ -68,11 +69,14 @@ h1 { font-size: 19px; margin: 0; }
   padding: 4px 12px; cursor: pointer; font-size: 12px;
 }
 .quick button.active { background: var(--accent); color: #04101f; border-color: var(--accent); font-weight: 600; }
+/* 選了 hashtag(跨全部時間)時,日期範圍暫停作用 → 變暗且不可點 */
+.range-bar.suspended { opacity: .45; pointer-events: none; }
 
 /* ---- active filter status ---- */
 .filter-status { margin-top: 10px; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; font-size: 13px; }
 .filter-status:empty { display: none; }
 .fs-chip { background: var(--surface-2); border: 1px solid var(--border); border-radius: 14px; padding: 3px 6px 3px 10px; }
+.fs-note { color: var(--muted); font-size: 12px; }
 .fs-x { background: none; border: none; color: var(--muted); cursor: pointer; font-size: 12px; padding: 0 4px; }
 .fs-x:hover { color: var(--text); }
 .fs-clear { background: none; border: 1px solid var(--border); border-radius: 12px; color: var(--muted); cursor: pointer; font-size: 12px; padding: 3px 10px; }
@@ -128,7 +132,18 @@ main { padding: 20px 24px 60px; max-width: 1100px; }
 }
 .msg-toggle { background: none; border: none; color: var(--accent); font-size: 12px; cursor: pointer; padding: 4px 0 0; }
 .msg-toggle:hover { text-decoration: underline; }
-mark { background: #ffd54a; color: #1a1200; border-radius: 2px; padding: 0 1px; }
+mark { background: var(--important); color: #1a1200; border-radius: 2px; padding: 0 1px; }
+
+/* ---- #重要 高亮卡 ---- */
+.msg.important {
+  border-color: var(--important);
+  border-left: 3px solid var(--important);
+  background: linear-gradient(90deg, rgba(255, 213, 74, .07), rgba(255, 213, 74, 0) 180px), var(--surface);
+}
+.imp-badge {
+  font-size: 11px; font-weight: 600; color: #1a1200; background: var(--important);
+  border-radius: 10px; padding: 1px 8px; white-space: nowrap;
+}
 
 /* ---- 連結預覽卡(text-only,Telegram/Line 風格)---- */
 .preview {

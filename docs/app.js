@@ -78,8 +78,19 @@ function hasTag(m) {
   if (!tagFilter) return true;
   return (m.hashtags || []).some(t => t.toLowerCase() === tagFilter);
 }
-// 結構用(日期清單/週清單/排行):只套「範圍 + 搜尋」,不套 tag
+// 結構用(排行榜):只套「範圍 + 搜尋」,不套 tag —— 排行榜是「範圍控制的工具」
 function baseFiltered() { return MSGS.filter(m => inRange(m) && matchesSearch(m)); }
+// 每日/週/總覽用:選了 hashtag 就「跨全部時間」(無視日期範圍),否則照範圍
+function scopeFiltered() {
+  if (tagFilter) return MSGS.filter(m => matchesSearch(m) && hasTag(m));
+  return MSGS.filter(m => inRange(m) && matchesSearch(m));
+}
+
+// ===== #重要 =====
+const IMPORTANT_TAG = "重要";
+function isImportant(m) {
+  return (m.hashtags || []).some(t => t.replace(/^#/, "").toLowerCase() === IMPORTANT_TAG);
+}
 
 // ===== 連結預覽卡(Telegram 已 unfurl 的標題/摘要/網域)=====
 function renderPreview(pv) {
@@ -113,10 +124,12 @@ function renderMsg(m, showDate = true) {
   const textBlock = long
     ? `<div class="msg-text clamp">${body}</div><button class="msg-toggle" type="button">展開全文 ▾</button>`
     : `<div class="msg-text">${body}</div>`;
+  const imp = isImportant(m);
   return `
-    <div class="msg">
+    <div class="msg${imp ? " important" : ""}">
       <div class="msg-head">
         <span class="msg-time">${escapeHtml(when)}</span>
+        ${imp ? `<span class="imp-badge">⭐ 重要</span>` : ""}
         <a class="msg-link" href="${escapeHtml(m.link)}" target="_blank" rel="noopener">在 Telegram 開啟 ↗</a>
       </div>
       ${textBlock}
@@ -156,16 +169,23 @@ function setTag(tag) {
 function rerenderAll() {
   renderOverview();
   renderFilterStatus();
+  syncRangeBarState();
   renderDay();
   renderRank();
   renderWeek();
+  renderImportant();
+}
+// 選了 hashtag → 跨全部時間,日期範圍此刻不作用 → 視覺上暫停日期控制列
+function syncRangeBarState() {
+  const bar = document.querySelector(".range-bar");
+  if (bar) bar.classList.toggle("suspended", !!tagFilter);
 }
 
 // ===== 篩選狀態列 =====
 function renderFilterStatus() {
   const parts = [];
   if (searchTerm) parts.push(`<span class="fs-chip">🔍 ${escapeHtml(searchTerm)} <button class="fs-x" data-clear="search">✕</button></span>`);
-  if (tagFilter) parts.push(`<span class="fs-chip">🏷 ${escapeHtml(tagFilter)} <button class="fs-x" data-clear="tag">✕</button></span>`);
+  if (tagFilter) parts.push(`<span class="fs-chip">🏷 ${escapeHtml(tagFilter)} <span class="fs-note">· 跨全部時間</span> <button class="fs-x" data-clear="tag">✕</button></span>`);
   document.getElementById("filter-status").innerHTML = parts.length
     ? `<span class="muted">篩選中:</span> ${parts.join(" ")} <button class="fs-clear" data-clear="all">清除全部</button>`
     : "";
@@ -175,7 +195,7 @@ function renderFilterStatus() {
 let selectedDay = null;
 function renderDay() {
   const el = document.getElementById("tab-day");
-  const base = baseFiltered();
+  const base = scopeFiltered();
   const dates = [...new Set(base.map(m => m.local_date))].sort().reverse();
   if (!dates.length) { el.innerHTML = `<div class="empty">沒有符合的訊息。</div>`; return; }
   if (!selectedDay || !dates.includes(selectedDay)) selectedDay = dates[0];
@@ -218,7 +238,7 @@ function renderDayContent(dayMsgs) {
   const shown = tagFilter ? dayMsgs.filter(hasTag) : dayMsgs;
 
   box.innerHTML =
-    `<div class="section-title">${fmtDate(selectedDay)} ・ 共 ${dayMsgs.length} 則${tagFilter ? `,篩選後 ${shown.length} 則` : ""}</div>` +
+    `<div class="section-title">${fmtDate(selectedDay)} ・ 共 ${shown.length} 則${tagFilter ? `(${escapeHtml(tagFilter)},跨全部時間)` : ""}</div>` +
     `<div class="day-summary">${summaryChips(rank)}</div>` +
     (shown.length
       ? shown.slice().sort((a, b) => b.id - a.id).map(m => renderMsg(m, false)).join("")
@@ -234,8 +254,15 @@ function renderRank() {
   el.innerHTML = `<div class="rank-hint muted">點任一 hashtag 即可篩選(每日／週整理會同步)</div>` +
     rank.map((r, i) => {
       const active = tagFilter === r.display.toLowerCase();
+      // 展開明細跨全部時間(不受上方日期範圍限制),呼應「點標籤 = 跨月看某公司」
+      const allMsgs = active
+        ? MSGS.filter(m => matchesSearch(m) && (m.hashtags || []).some(t => t.toLowerCase() === r.display.toLowerCase()))
+        : [];
       const detail = active
-        ? `<div class="rank-detail">${r.msgs.slice().sort((a, b) => b.id - a.id).map(m => renderMsg(m, true)).join("")}</div>`
+        ? `<div class="rank-detail">
+             <div class="section-title">跨全部時間共 ${allMsgs.length} 則</div>
+             ${allMsgs.sort((a, b) => b.id - a.id).map(m => renderMsg(m, true)).join("")}
+           </div>`
         : "";
       return `
         <div class="rank-row${active ? " active" : ""}" data-tag="${r.display.toLowerCase()}">
@@ -261,7 +288,7 @@ function groupByWeek(msgs) {
 }
 function renderWeek() {
   const el = document.getElementById("tab-week");
-  const weeks = groupByWeek(baseFiltered());
+  const weeks = groupByWeek(scopeFiltered());
   if (!weeks.length) { el.innerHTML = `<div class="empty">沒有符合的訊息。</div>`; return; }
   if (!selectedWeek || !weeks.find(w => w.week === selectedWeek)) selectedWeek = weeks[0].week;
 
@@ -289,7 +316,7 @@ function renderWeekContent(week) {
   const days = Object.keys(byDate).sort().reverse();
 
   box.innerHTML =
-    `<div class="section-title">${week.week}(${week.range})・共 ${week.msgs.length} 則${tagFilter ? `,篩選後 ${shown.length} 則` : ""}</div>
+    `<div class="section-title">${week.week}(${week.range})・共 ${shown.length} 則${tagFilter ? `(${escapeHtml(tagFilter)},跨全部時間)` : ""}</div>
      <div class="day-summary">${rank.length ? summaryChips(rank) : `<span class="muted">本週沒有 hashtag</span>`}</div>` +
     (days.length
       ? days.map(d =>
@@ -297,6 +324,27 @@ function renderWeekContent(week) {
           byDate[d].slice().sort((a, b) => b.id - a.id).map(m => renderMsg(m, false)).join("")
         ).join("")
       : `<div class="empty">本週沒有「${escapeHtml(tagFilter)}」的訊息。</div>`);
+}
+
+// ===== 分頁④ 重要(#重要 精選,跨全部時間)=====
+function renderImportant() {
+  const el = document.getElementById("tab-important");
+  if (!el) return;
+  // 自己的固定範疇:所有 #重要、跨全部時間,僅受搜尋 narrow(不受日期範圍/標籤影響)
+  const msgs = MSGS.filter(m => isImportant(m) && matchesSearch(m)).sort((a, b) => b.id - a.id);
+  if (!msgs.length) {
+    el.innerHTML = `<div class="empty">${searchTerm ? "沒有符合搜尋的 #重要 訊息。" : "目前沒有 #重要 訊息。"}</div>`;
+    return;
+  }
+  const byDate = {};
+  for (const m of msgs) (byDate[m.local_date] ||= []).push(m);
+  const days = Object.keys(byDate).sort().reverse();
+  el.innerHTML =
+    `<div class="section-title">⭐ #重要 精選 ・ 跨全部時間共 ${msgs.length} 則</div>` +
+    days.map(d =>
+      `<div class="day-group-title">${fmtDate(d)}（${byDate[d].length} 則）</div>` +
+      byDate[d].map(m => renderMsg(m, false)).join("")
+    ).join("");
 }
 
 // ===== 頂部總覽 =====
@@ -311,7 +359,7 @@ function renderOverview() {
     fa.title = DATA.fetched_at.replace("T", " ").slice(0, 16);
   }
 
-  const base = baseFiltered();
+  const base = scopeFiltered();
   const todayCount = MSGS.filter(m => m.local_date === TODAY).length;
   document.getElementById("overview").innerHTML = `
     <div class="stat"><b>${todayCount}</b><span>今日則數</span></div>
