@@ -33,20 +33,24 @@ git push -u origin main
 
 ---
 
-## C. 開啟 GitHub Pages
+## C. 開啟 GitHub Pages(用 GitHub Actions 部署)
 
 1. 進 repo → **Settings** → 左側 **Pages**。
-2. **Source** 選 **Deploy from a branch**。
-3. **Branch** 選 `main`,資料夾選 **`/docs`** → **Save**。
-4. 等一兩分鐘,頁面上會出現網址:`https://<org>.github.io/<repo>/`
+2. **Source** 選 **GitHub Actions**(不要選「Deploy from a branch」)。
+3. repo 內已附 `.github/workflows/deploy-pages.yml`:每次 push 到 `main`(且動到 `docs/`)就自動把 `/docs` 部署上線。
+4. 等 workflow 第一次跑完(Actions 分頁看綠勾),頁面上會出現網址:`https://<org>.github.io/<repo>/`
    這就是你的公開統計網頁,直接發給任何人都能看。
+
+> **為什麼不用「Deploy from a branch」?** 舊的分支建置管線會偶發性失敗(內容沒錯也會 fail),
+> 每失敗一次 GitHub 就寄一封「Page build failed」給你。改用 Actions 的 `deploy-pages` 管線有重試、
+> 幾乎不再誤報失敗;仍只部署 `docs/` 靜態檔,不使用任何 secret。
 
 ---
 
 ## D. 自動更新(目前設定:每小時)
 
 `run_daily.bat` 會:抓新訊息 → `docs/data.js` 有變更才 commit → `git push`(沒變更就跳過)。
-GitHub 一收到更新,Pages 會自動重建,網站就是最新的。
+GitHub 一收到更新,`deploy-pages.yml` workflow 自動把 `/docs` 部署上線,網站就是最新的(約 1–2 分鐘)。
 
 Windows 工作排程器已設定「**AlfieRadio Hashtag Update**」:每小時跑一次 `run_daily.bat`,
 使用電池時也跑、錯過排程會補跑。要改頻率直接在工作排程器裡調整觸發程序即可。
