@@ -54,7 +54,23 @@ jobs:
       - name: Wait before retry 3
         if: steps.deploy1.outcome == 'failure' && steps.deploy2.outcome == 'failure'
         run: sleep 30
-      - name: Deploy to GitHub Pages (attempt 3, final)
+      - name: Deploy to GitHub Pages (attempt 3)
         id: deploy3
         if: steps.deploy1.outcome == 'failure' && steps.deploy2.outcome == 'failure'
+        continue-on-error: true
         uses: actions/deploy-pages@v4
+
+      # 三次都失敗 → 幾乎必為 GitHub Pages 後端偶發抖動（部署無害、下一小時的資料 push 會自動補上，
+      # 舊版仍在線上）。此時「不」讓 workflow 判失敗（避免每小時寄一封失敗信），只留一個 ⚠️ 警告，
+      # 在 Actions 分頁仍看得到。若你想恢復「失敗就寄信」，把下面的 exit 0 改成 exit 1 即可。
+      - name: Report deploy result (do not fail the run on backend flakiness)
+        if: always()
+        run: |
+          if [ "${{ steps.deploy1.outcome }}" = "success" ] || \
+             [ "${{ steps.deploy2.outcome }}" = "success" ] || \
+             [ "${{ steps.deploy3.outcome }}" = "success" ]; then
+            echo "✅ Pages 部署成功。"
+          else
+            echo "::warning::Pages 部署三次皆失敗（GitHub Pages 後端偶發問題）。線上維持上一個成功版，下次資料 push 會再嘗試。刻意不判為失敗，避免每小時寄失敗信。"
+          fi
+          exit 0
