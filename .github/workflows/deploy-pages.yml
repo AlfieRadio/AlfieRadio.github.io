@@ -15,17 +15,19 @@ permissions:
   pages: write
   id-token: write
 
-# 每小時的資料更新會連續觸發；同時只保留最新一次部署，較舊的直接取消（取消不算失敗、不寄信）。
+# 每小時的資料更新會連續觸發：只允許一個並行部署，排隊中的較舊 run 會被跳過，
+# 但「進行中」的部署不取消 —— 中途砍掉 production 部署會讓 Pages deployment 卡半完成、
+# 下一次就回 "Deployment failed, try again later"。這是 GitHub 官方 Pages 範本的設定。
 concurrency:
   group: pages
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 jobs:
   deploy:
     runs-on: ubuntu-latest
     environment:
       name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
+      url: ${{ steps.deploy1.outputs.page_url || steps.deploy2.outputs.page_url || steps.deploy3.outputs.page_url }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -35,6 +37,24 @@ jobs:
         uses: actions/upload-pages-artifact@v3
         with:
           path: docs
-      - name: Deploy to GitHub Pages
-        id: deployment
+      # GitHub Pages 後端偶發回 "Deployment failed, try again later"（部署已建立、後端瞬間失敗）。
+      # 同一次 run 內最多試 3 次；前兩次容錯，只有連 3 次都失敗才讓 workflow 真的失敗、寄信。
+      - name: Deploy to GitHub Pages (attempt 1)
+        id: deploy1
+        continue-on-error: true
+        uses: actions/deploy-pages@v4
+      - name: Wait before retry 2
+        if: steps.deploy1.outcome == 'failure'
+        run: sleep 20
+      - name: Deploy to GitHub Pages (attempt 2)
+        id: deploy2
+        if: steps.deploy1.outcome == 'failure'
+        continue-on-error: true
+        uses: actions/deploy-pages@v4
+      - name: Wait before retry 3
+        if: steps.deploy1.outcome == 'failure' && steps.deploy2.outcome == 'failure'
+        run: sleep 30
+      - name: Deploy to GitHub Pages (attempt 3, final)
+        id: deploy3
+        if: steps.deploy1.outcome == 'failure' && steps.deploy2.outcome == 'failure'
         uses: actions/deploy-pages@v4
