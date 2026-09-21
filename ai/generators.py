@@ -261,3 +261,253 @@ def select(units: list[Unit], max_units: int) -> list[Unit]:
     stale = [u for u in units if u.stale]
     stale.sort(key=lambda u: (u.priority, -u.meta.get("msg_count", 0), u.key))
     return stale[:max_units]
+
+
+# ================================================================ 驗證 + 組裝
+#
+# 鐵則:LLM 交回來的 dict 只提供「文字」與一個列舉值;
+# 所有 id / 日期 / 次數 / 標籤一律在這裡用語料重新填,或以白名單過濾。
+# 因此模型幻覺出來的 id、標籤、數字沒有任何一條能抵達前端。
+
+def _ids_filter(raw, allowed: set, limit: int = 4) -> list:
+    out = []
+    for x in (raw or []):
+        try:
+            i = int(x)
+        except (TypeError, ValueError):
+            continue
+        if i in allowed and i not in out:
+            out.append(i)
+        if len(out) >= limit:
+            break
+    return out
+
+
+def _story_payload(u: Unit, c: Corpus, ai: dict, covered: list,
+                   sampled: bool, model):
+    allowed = set(covered)
+    dates = {c.by_id[i]["local_date"] for i in covered if i in c.by_id}
+    st = c.tags[u.meta["tag_key"]]
+
+    beats = []
+    for b in (ai.get("beats") or []):
+        ids = _ids_filter(b.get("msg_ids"), allowed)
+        if not ids:
+            continue                      # 沒有有效引用的 beat 一律丟棄
+        d = str(b.get("date") or "")
+        if d not in dates:                # 日期必須來自被引用的訊息
+            d = min(c.by_id[i]["local_date"] for i in ids)
+        beats.append({"date": d,
+                      "title": _clip(b.get("title"), 40),
+                      "detail": _clip(b.get("detail"), 160),
+                      "msg_ids": ids})
+    if not beats:
+        return None                       # 結構性欄位空掉 → 整單拒絕
+    beats.sort(key=lambda b: b["date"])
+
+    state = ai.get("state")
+    if state not in ("升溫", "降溫", "持平"):
+        state = "持平"
+    vocab = c.vocabulary()
+    related = [c.tags[t.lower()].display for t in (ai.get("related_tags") or [])
+               if isinstance(t, str) and t.lower() in vocab
+               and t.lower() != u.meta["tag_key"]][:6]
+
+    return {
+        "id": u.key, "tag": st.display, "tag_key": st.key,
+        "h": u.new_hash, "model": model, "generated_at": cache_mod.now_iso(),
+        "msg_count": st.count, "first_date": st.first_date, "last_date": st.last_date,
+        "sampled": sampled, "covered_ids": covered,
+        "summary": _clip(ai.get("summary"), 80),
+        "state": state, "beats": beats[:7],
+        "outlook": _clip(ai.get("outlook"), 100),
+        "related_tags": related,
+    }
+
+
+def _period_payload(u: Unit, c: Corpus, ai: dict, msgs: list, stats: dict,
+                    label: str, model):
+    allowed = {m["id"] for m in msgs}
+    vocab = c.vocabulary()
+    themes = []
+    for t in (ai.get("themes") or []):
+        themes.append({"title": _clip(t.get("title"), 30),
+                       "detail": _clip(t.get("detail"), 160),
+                       "tags": [x for x in (t.get("tags") or [])
+                                if isinstance(x, str) and x.lower() in vocab][:6],
+                       "msg_ids": _ids_filter(t.get("msg_ids"), allowed, 6)})
+    themes = [t for t in themes if t["title"]]
+    events = []
+    for e in (ai.get("key_events") or []):
+        ids = _ids_filter(e.get("msg_ids"), allowed, 4)
+        events.append({"date": str(e.get("date") or ""),
+                       "title": _clip(e.get("title"), 50), "msg_ids": ids})
+    events = [e for e in events if e["title"]]
+    if not themes and not events:
+        return None
+
+    return {
+        "id": u.key, "period": u.meta.get("iso_week") or u.meta.get("month"),
+        "label": label, "h": u.new_hash, "model": model,
+        "generated_at": cache_mod.now_iso(), "msg_count": len(msgs),
+        "top_tags": stats.get("top_tags", []), "new_tags": stats.get("new_tags", []),
+        "heat_up": stats.get("heat_up", []), "heat_down": stats.get("heat_down", []),
+        "one_liner": _clip(ai.get("one_liner"), 70),
+        "themes": themes[:6], "key_events": events[:8],
+    }
+
+
+def _clusters_payload(u: Unit, c: Corpus, ai: dict, model):
+    groups = [{"name": _clip(g.get("name"), 20), "blurb": _clip(g.get("blurb"), 80),
+               "tags": [{"tag": t, "count": 0} for t in (g.get("tags") or [])
+                        if isinstance(t, str)], "total": 0}
+              for g in (ai.get("groups") or []) if g.get("name")]
+    if not groups:
+        return None
+    # 次數 / total / unclustered / edges 全部交給 emit.refresh_deterministic 填
+    return {"id": u.key, "h": u.new_hash, "model": model,
+            "generated_at": cache_mod.now_iso(),
+            "groups": groups, "unclustered": [], "edges": [],
+            "tag_threshold": config.CLUSTER_MIN_COUNT, "refreshed_at": None}
+
+
+def _radar_payload(u: Unit, c: Corpus, ai: dict, model):
+    table = u.meta["table"]
+    why = ai.get("why") if isinstance(ai.get("why"), dict) else {}
+    out = {"id": u.key, "h": u.new_hash, "model": model,
+           "generated_at": cache_mod.now_iso(),
+           "as_of": table.get("as_of", ""), "window": table.get("window", {}),
+           "note": _clip(ai.get("note"), 80) or None}
+    for b in ("rising", "falling", "fresh"):
+        rows = []
+        for d in table.get(b, []):
+            d = dict(d)
+            w = why.get(d["tag_key"]) or why.get(d["tag"])
+            d["why"] = _clip(w, 60) if isinstance(w, str) else None
+            rows.append(d)
+        out[b] = rows
+    return out
+
+
+# ================================================================ Offline stub
+# 讓整條 validate -> cache -> emit 路徑在零網路下跑完,產出真的 insights.js
+# 供 UI 開發與回歸測試使用。文字一律標 [示範],不會被誤認成真的分析。
+
+def _stub(u: Unit, c: Corpus, covered: list, msgs: list) -> dict:
+    if u.kind == "story":
+        picks = covered[:: max(1, len(covered) // 4)][:4] or covered[:1]
+        return {"summary": "[示範] " + u.meta["display"] + " 的現況摘要,共 "
+                           + str(u.meta["msg_count"]) + " 則。",
+                "state": "升溫",
+                "beats": [{"date": c.by_id[i]["local_date"],
+                           "title": "[示範] 事件 " + str(n + 1),
+                           "detail": _clip(c.by_id[i].get("text", ""), 120),
+                           "msg_ids": [i]}
+                          for n, i in enumerate(picks)],
+                "outlook": "[示範] 後續觀察方向。",
+                "related_tags": []}
+    if u.kind in ("week", "month"):
+        ids = [m["id"] for m in msgs]
+        return {"one_liner": "[示範] 本期共 " + str(len(msgs)) + " 則訊息。",
+                "themes": [{"title": "[示範] 主軸一", "detail": "[示範] 說明文字。",
+                            "tags": [], "msg_ids": ids[:3]}],
+                "key_events": [{"date": msgs[0]["local_date"] if msgs else "",
+                                "title": "[示範] 重點事件", "msg_ids": ids[:2]}]}
+    if u.kind == "clusters":
+        tops = cluster_tags(c)[:24]
+        size = max(1, len(tops) // 4)
+        return {"groups": [{"name": "[示範] 主題 " + str(i + 1),
+                            "blurb": "[示範] 這組標籤的共同性。",
+                            "tags": [t.display for t in tops[i * size:(i + 1) * size]]}
+                           for i in range(4)]}
+    return {"why": {d["tag_key"]: "[示範] 竄升原因推測。"
+                    for d in u.meta["table"].get("rising", [])[:5]},
+            "note": "[示範] 整體觀察。"}
+
+
+# ================================================================ 生成入口
+
+def generate_unit(u: Unit, c: Corpus, cache: dict, offline: bool = False):
+    """產生一個單元並寫進快取。回傳模型標籤代表成功,None 代表失敗(由呼叫端計數)。
+
+    失敗時**不會**動到既有 payload —— 壞掉的一天絕不劣化網站。
+    """
+    covered = []
+    msgs = []
+    stats = {}
+    sampled = False
+    label = "[示範資料]" if offline else None
+
+    # ---- 組輸入
+    if u.kind == "story":
+        text, covered, sampled = build_story_input(c, u.meta["tag_key"])
+    elif u.kind == "week":
+        msgs = c.weeks()[u.meta["iso_week"]]
+        text, covered, _ = build_period_input(c, msgs)
+        stats = c.period_stats(msgs, _prev_period_msgs(c, u))
+    elif u.kind == "month":
+        msgs = c.months()[u.meta["month"]]
+        text = _month_input(c, u, cache)
+        covered = [m["id"] for m in msgs]
+        stats = c.period_stats(msgs, _prev_period_msgs(c, u))
+    elif u.kind == "clusters":
+        text, _ = build_clusters_input(c)
+    else:
+        text = build_radar_input(c, u.meta["table"])
+
+    # ---- 取得 AI 輸出
+    if offline:
+        ai = _stub(u, c, covered, msgs)
+    else:
+        from . import llm_task
+        ai, label = llm_task.run(u, text)
+        if ai is None:
+            return None
+
+    # ---- 驗證 + 組裝
+    if u.kind == "story":
+        p = _story_payload(u, c, ai, covered, sampled, label)
+    elif u.kind in ("week", "month"):
+        if u.kind == "week":
+            lab = c.week_label(u.meta["iso_week"])
+        else:
+            lab = u.meta["month"][:4] + " 年 " + str(int(u.meta["month"][5:])) + " 月"
+        p = _period_payload(u, c, ai, msgs, stats, lab, label)
+    elif u.kind == "clusters":
+        p = _clusters_payload(u, c, ai, label)
+    else:
+        p = _radar_payload(u, c, ai, label)
+
+    if p is None:
+        return None
+    cache_mod.put(cache, u.key, h=u.new_hash, payload=p, model=label,
+                  base_msg_count=u.meta.get("msg_count", 0))
+    return label
+
+
+def _prev_period_msgs(c: Corpus, u: Unit) -> list:
+    """前一期的訊息,用來算升溫/降溫。"""
+    if u.kind == "week":
+        ks = sorted(c.weeks().keys())
+        i = ks.index(u.meta["iso_week"])
+        return c.weeks()[ks[i - 1]] if i > 0 else []
+    ks = sorted(c.months().keys())
+    i = ks.index(u.meta["month"])
+    return c.months()[ks[i - 1]] if i > 0 else []
+
+
+def _month_input(c: Corpus, u: Unit, cache: dict) -> str:
+    """月報 = 對「已快取的週報」做 reduce,不吃原文(一個月 ~110k 字元塞不進去)。"""
+    blocks = []
+    for w in u.meta["weeks"]:
+        e = cache_mod.get(cache, "week:" + w)
+        p = (e or {}).get("payload")
+        if not p:
+            continue
+        lines = ["【" + p.get("label", w) + "】" + (p.get("one_liner") or "")]
+        for t in p.get("themes", []):
+            lines.append("  主軸:" + str(t.get("title")) + " —— " + str(t.get("detail")))
+        for ev in p.get("key_events", []):
+            lines.append("  事件:" + str(ev.get("date")) + " " + str(ev.get("title")))
+        blocks.append("\n".join(lines))
+    return "\n\n".join(blocks)

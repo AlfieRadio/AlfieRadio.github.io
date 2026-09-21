@@ -174,6 +174,8 @@ function rerenderAll() {
   renderRank();
   renderWeek();
   renderImportant();
+  // 頁籤⑤(AI 洞察)由 insights-ui.js 提供;沒有那支檔案時整個功能靜默消失
+  if (typeof renderInsights === "function") renderInsights();
 }
 // 選了 hashtag → 跨全部時間,日期範圍此刻不作用 → 視覺上暫停日期控制列
 function syncRangeBarState() {

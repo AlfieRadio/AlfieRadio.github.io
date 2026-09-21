@@ -9,6 +9,7 @@
   --accent-2: #34d399;
   --chip: #2a3b52;
   --important: #ffd54a;
+  --down: #f87171;   /* 退燒/降溫;上升沿用 --accent-2 */
 }
 
 * { box-sizing: border-box; }
@@ -195,6 +196,78 @@ mark { background: var(--important); color: #1a1200; border-radius: 2px; padding
 
 .empty { color: var(--muted); padding: 40px 0; text-align: center; }
 
+/* ---- ⑤ AI 洞察 ---- */
+.ins-subnav { margin-bottom: 14px; }
+.ins-head { display: flex; align-items: center; gap: 8px; color: var(--muted); font-size: 12px; margin-bottom: 8px; }
+.ins-model {
+  border: 1px solid var(--border); border-radius: 10px; padding: 1px 8px;
+  font-size: 11px; color: var(--muted);
+}
+/* 沿用 .msg.important 的左框慣用法,維持視覺一致 */
+.ins-stale {
+  border: 1px solid var(--border); border-left: 3px solid var(--important);
+  background: var(--surface); border-radius: 8px;
+  padding: 8px 12px; margin-bottom: 12px; font-size: 13px;
+}
+.ins-card {
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: 10px; padding: 12px 14px; margin-bottom: 10px;
+}
+.ins-intro b { font-size: 14px; }
+.ins-summary { font-size: 14px; margin-top: 6px; }
+.ins-detail { font-size: 13px; margin-top: 4px; }
+/* AI 寫的句子一律用這個樣式 —— 視覺上明確區分「推測」與「事實數據」 */
+.ins-why { color: var(--muted); font-style: italic; font-size: 13px; margin-top: 6px; }
+
+.ins-story-head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.ins-story-tag { font-size: 16px; color: var(--accent); }
+.ins-state { font-size: 11px; font-weight: 600; border-radius: 10px; padding: 1px 8px; }
+.ins-state.up { background: var(--accent-2); color: #04190f; }
+.ins-state.down { background: var(--down); color: #2a0606; }
+.ins-state.flat { background: var(--surface-2); color: var(--muted); }
+.ins-goto {
+  margin-left: auto; background: none; border: 1px solid var(--border);
+  color: var(--accent); border-radius: 12px; padding: 3px 10px;
+  font-size: 12px; cursor: pointer; white-space: nowrap;
+}
+.ins-goto:hover { background: var(--surface-2); }
+
+/* 時間線:左側細線 + 圓點 */
+.ins-beats { border-left: 2px solid var(--border); margin-left: 6px; padding-left: 16px; }
+.ins-beat { position: relative; margin-bottom: 16px; }
+.ins-beat::before {
+  content: ""; position: absolute; left: -22px; top: 6px;
+  width: 8px; height: 8px; border-radius: 50%;
+  background: var(--accent); border: 2px solid var(--bg);
+}
+.ins-beat-date { color: var(--accent-2); font-size: 12px; font-weight: 600; }
+.ins-beat-title { font-size: 14px; font-weight: 600; margin-top: 2px; }
+.ins-beat-detail { font-size: 13px; color: var(--text); opacity: .9; margin-top: 2px; }
+
+.ins-cite { background: none; border: none; color: var(--accent); font-size: 12px; cursor: pointer; padding: 4px 0 0; }
+.ins-cite:hover { text-decoration: underline; }
+.ins-cite-box { margin-top: 8px; }
+
+/* 雷達 */
+.radar-row {
+  display: grid; grid-template-columns: minmax(90px, 160px) 70px 1fr;
+  gap: 12px; align-items: start;
+  padding: 10px; border-bottom: 1px solid var(--border);
+}
+.radar-delta { font-weight: 700; font-variant-numeric: tabular-nums; text-align: right; }
+.radar-delta.up { color: var(--accent-2); }
+.radar-delta.down { color: var(--down); }
+.radar-delta.new { color: var(--important); font-size: 12px; font-weight: 600; }
+.radar-nums { font-size: 13px; color: var(--muted); font-variant-numeric: tabular-nums; }
+
+/* 週/月報的確定性小表格 */
+.ins-tables { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 10px; margin: 12px 0; }
+.ins-minitable { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 8px 10px; }
+.ins-minihead { font-size: 12px; color: var(--muted); margin-bottom: 6px; }
+.ins-minirow { display: flex; align-items: center; gap: 8px; justify-content: space-between; margin-bottom: 4px; font-size: 12px; }
+
+.cluster-group .chips { margin-top: 8px; }
+
 @media (max-width: 720px) {
   header { padding: 14px 16px 12px; }
   main { padding: 16px 16px 60px; }
@@ -205,8 +278,11 @@ mark { background: var(--important); color: #1a1200; border-radius: 2px; padding
   .overview { gap: 14px; }
   .overview .stat b { font-size: 19px; }
 
-  /* 每日內容:日期清單改成「橫向滑動的膠囊條」,內容直接顯示在下方 */
-  .day-layout { display: block; }
+  /* 每日內容:日期清單改成「橫向滑動的膠囊條」,內容直接顯示在下方。
+     敘事線的左側標籤欄沿用同一套規則 → 手機版行為免費取得 */
+  .day-layout, .story-layout { display: block; }
+  .radar-row { grid-template-columns: 1fr 70px; }
+  .radar-body { grid-column: 1 / -1; }
   .day-list {
     display: flex; flex-direction: row; gap: 8px;
     max-height: none; border-right: none; padding: 2px 0 10px;

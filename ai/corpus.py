@@ -189,10 +189,11 @@ class Corpus:
             for i in range(len(keys)):
                 for j in range(i + 1, len(keys)):
                     pair[(keys[i], keys[j])] += 1
-        out = [{"a": self.tags[a].display, "b": self.tags[b].display, "w": w}
-               for (a, b), w in pair.most_common()
-               if w >= min_w and a in self.tags and b in self.tags]
-        return out[:top]
+        rows = [(w, a, b) for (a, b), w in pair.items()
+                if w >= min_w and a in self.tags and b in self.tags]
+        rows.sort(key=lambda r: (-r[0], r[1], r[2]))   # tie-break 鎖死順序
+        return [{"a": self.tags[a].display, "b": self.tags[b].display, "w": w}
+                for w, a, b in rows[:top]]
 
     # ------------------------------------------------------------ 趨勢
 

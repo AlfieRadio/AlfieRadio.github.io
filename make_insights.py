@@ -244,7 +244,8 @@ def main() -> int:
             except Exception:  # noqa: BLE001
                 traceback.print_exc()
                 cache_mod.mark_fail(cache, u.key)
-            time.sleep(config.AI_CALL_SLEEP)
+            if not args.offline:      # offline 不打網路,沒有速率限制要閃
+                time.sleep(config.AI_CALL_SLEEP)
 
         from ai import emit
         emit.refresh_deterministic(cache, c)      # 無 AI:刷新聚類次數/共現、雷達表
