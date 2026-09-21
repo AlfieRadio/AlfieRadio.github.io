@@ -79,8 +79,11 @@ def _call_claude(system, user, model, json_schema=None,
 
 def _call_gemini(system, user, model, json_schema=None,
                  max_tokens=8192, temperature=0.4):
-    gen = {"temperature": temperature, "maxOutputTokens": max_tokens,
-           "thinkingConfig": {"thinkingBudget": config.GEMINI_THINKING_BUDGET}}
+    gen = {"temperature": temperature, "maxOutputTokens": max_tokens}
+    # 負數 = 完全不送 thinkingConfig。逃生門:若某個世代不接受這個參數,
+    # 在 .env 設 GEMINI_THINKING_BUDGET=-1 就能繞過,不必改程式。
+    if config.GEMINI_THINKING_BUDGET >= 0:
+        gen["thinkingConfig"] = {"thinkingBudget": config.GEMINI_THINKING_BUDGET}
     if json_schema is not None:
         # 原生 JSON 模式:免費,且是整條鏈裡可靠度提升最大的一招
         gen["responseMimeType"] = "application/json"

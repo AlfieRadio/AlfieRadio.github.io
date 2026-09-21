@@ -28,12 +28,16 @@ AI_PROVIDER = os.getenv("AI_PROVIDER", "gemini")
 
 # Gemini(主力,免費):金鑰 https://aistudio.google.com/apikey
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
-# 2.5-flash:免費額度寬(約 250/日)且穩定(2.5-pro 免費額度幾乎為 0、常 429)
-GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
-# 同金鑰免費備援:主模型 429 或輸出被截斷時自動降級,有獨立每日額度
-GEMINI_MODEL_FALLBACK = os.getenv("GEMINI_MODEL_FALLBACK", "gemini-2.5-flash-lite")
-# 2.5 thinking 的「思考」與正文共用 maxOutputTokens;不設上限時思考會膨脹到把正文截斷。
-# 我們要的是完整 JSON,截斷比慢更糟。0=關閉思考、-1=動態。
+# 主模型:官方文件(2026-09 查證)列為一般文字任務的建議預設。
+# 注意 Google 的免費額度已不在公開文件列出,要看自己的儀表板:
+#   https://aistudio.google.com/rate-limit
+# 若你的免費層對這個模型額度很緊,在 .env 覆寫成 lite 版即可。
+GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-3.8-flash")
+# 同金鑰的降級備援:刻意選不同世代的 lite —— 不同模型有各自的每日額度,
+# 主模型額度用盡時才有退路;lite 也較不會被 thinking 吃光輸出。
+GEMINI_MODEL_FALLBACK = os.getenv("GEMINI_MODEL_FALLBACK", "gemini-3.5-flash-lite")
+# thinking 模型的「思考」與正文共用 maxOutputTokens;不設上限時思考會膨脹到把正文截斷,
+# 而半截的 JSON 必定解析失敗。0=關閉思考、負數=不送這個參數(某些世代不接受)。
 GEMINI_THINKING_BUDGET = _int("GEMINI_THINKING_BUDGET", 2048)
 
 # OpenRouter(免費第二供應商):與 Google 完全獨立,Google 整批掛掉仍有救。
