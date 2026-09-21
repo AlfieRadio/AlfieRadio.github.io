@@ -279,6 +279,15 @@ def main() -> int:
     ap.add_argument("--selftest", action="store_true", help="用已知壞輸出測驗證器,零網路")
     args = ap.parse_args()
 
+    # 便宜的短路條件放最前面:排程每小時跑一次,其中 23 次會被 20 小時閘門擋掉。
+    # 若先載入 4MB 語料再啟動 node 對帳才檢查閘門,等於每天白做 23 次昂貴工作。
+    cache = cache_mod.load()
+    if not (args.dry_run or args.selftest or args.force or args.only):
+        h = cache_mod.hours_since(cache.get("meta", {}).get("last_ai_run_at"))
+        if h < config.AI_MIN_INTERVAL_HOURS:
+            print(f"距上次執行僅 {h:.1f} 小時(門檻 {config.AI_MIN_INTERVAL_HOURS}),本次略過。")
+            return 0
+
     try:
         c = corpus.load()
     except Exception as exc:  # noqa: BLE001
@@ -293,7 +302,6 @@ def main() -> int:
         if not verify_parity(c) and args.strict:
             return 1
 
-    cache = cache_mod.load()
     units = generators.plan(c, cache)
 
     if args.only:
@@ -311,13 +319,7 @@ def main() -> int:
         print_plan(units, picked, c)
         return 0
 
-    # ---- 以下為真實執行路徑
-    if not args.force and not args.only:
-        h = cache_mod.hours_since(cache.get("meta", {}).get("last_ai_run_at"))
-        if h < config.AI_MIN_INTERVAL_HOURS:
-            print(f"距上次執行僅 {h:.1f} 小時(門檻 {config.AI_MIN_INTERVAL_HOURS}),本次略過。")
-            return 0
-
+    # ---- 以下為真實執行路徑(20 小時閘門已在最前面檢查過)
     stale_n = sum(1 for u in units if u.stale)
     if stale_n > 3 * max_units and not (args.full or args.only):
         print(f"[warn] 過期單元 {stale_n} 個,遠超單次上限 —— 疑似大量回補。"

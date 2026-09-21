@@ -89,6 +89,7 @@ def _rebuild_from_insights_js() -> dict:
         c["entries"][key] = {
             "h": unit["h"], "model": unit.get("model"),
             "generated_at": unit.get("generated_at"),
+            "prompt_version": unit.get("pv"),
             "base_msg_count": unit.get("msg_count", 0),
             "fail_count": 0, "last_fail_at": None,
             "payload": unit,
@@ -133,12 +134,22 @@ def save(cache: dict) -> None:
 
 def is_stale(kind: str, entry: dict | None, new_hash: str, *,
              new_msg_count: int = 0, rising_keys: set[str] | None = None,
-             unit_key: str = "", new_tag_delta: int = 0) -> tuple[bool, str]:
+             unit_key: str = "", new_tag_delta: int = 0,
+             prompt_version: int | None = None) -> tuple[bool, str]:
     """回傳 (要不要重生, 原因)。原因字串會出現在 --dry-run 表格裡。"""
     if entry is None:
         return True, "尚未產生"
     if entry.get("h") == new_hash:
         return False, "雜湊相同"
+
+    # **版本不符凌駕去抖動。**
+    # 去抖動是針對「內容微幅變動」的節流(例如高流量標籤每天多幾則就重燒很浪費),
+    # 但它不該攔截「人為刻意改了 prompt」。兩者混在一起會讓 PROMPT_VERSION
+    # 這個「全部重生」開關對有去抖動的 kind 完全失效。
+    if prompt_version is not None:
+        old_pv = entry.get("prompt_version")
+        if old_pv != prompt_version:
+            return True, f"prompt 版本 {old_pv} → {prompt_version}"
 
     # 連續失敗的單元先冷卻,避免每天都在同一個壞單元上浪費呼叫
     if entry.get("fail_count", 0) >= 3 and age_days(entry.get("last_fail_at")) < 7:
@@ -174,9 +185,10 @@ def get(cache: dict, key: str) -> dict | None:
 
 
 def put(cache: dict, key: str, *, h: str, payload: dict, model: str | None,
-        base_msg_count: int = 0) -> None:
+        base_msg_count: int = 0, prompt_version: int | None = None) -> None:
     cache.setdefault("entries", {})[key] = {
         "h": h, "model": model, "generated_at": now_iso(),
+        "prompt_version": prompt_version,
         "base_msg_count": base_msg_count, "fail_count": 0, "last_fail_at": None,
         "payload": payload,
     }

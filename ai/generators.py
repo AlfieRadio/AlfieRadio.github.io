@@ -248,7 +248,8 @@ def plan(c: Corpus, cache: dict) -> list[Unit]:
             u.kind, entry, u.new_hash,
             new_msg_count=u.meta.get("msg_count", 0),
             rising_keys=rising_keys, unit_key=u.key,
-            new_tag_delta=u.meta.get("new_tag_delta", 0))
+            new_tag_delta=u.meta.get("new_tag_delta", 0),
+            prompt_version=PROMPT_VERSION[u.kind])
         # 成分週還沒產生的月份先延後,避免對著空資料硬做
         if u.kind == "month" and u.meta.get("missing_weeks"):
             u.stale, u.reason = False, f"等待 {len(u.meta['missing_weeks'])} 個成分週先產生"
@@ -337,7 +338,7 @@ def _story_payload(u: Unit, c: Corpus, ai: dict, covered: list,
 
     return {
         "id": u.key, "tag": st.display, "tag_key": st.key,
-        "h": u.new_hash, "model": model, "generated_at": cache_mod.now_iso(),
+        "pv": PROMPT_VERSION["story"], "h": u.new_hash, "model": model, "generated_at": cache_mod.now_iso(),
         "msg_count": st.count, "first_date": st.first_date, "last_date": st.last_date,
         "sampled": sampled, "covered_ids": covered,
         "summary": _clip(ai.get("summary"), 80),
@@ -368,7 +369,7 @@ def _period_payload(u: Unit, c: Corpus, ai: dict, msgs: list, stats: dict,
 
     return {
         "id": u.key, "period": u.meta.get("iso_week") or u.meta.get("month"),
-        "label": label, "h": u.new_hash, "model": model,
+        "pv": PROMPT_VERSION[u.kind], "label": label, "h": u.new_hash, "model": model,
         "generated_at": cache_mod.now_iso(), "msg_count": len(msgs),
         "top_tags": stats.get("top_tags", []), "new_tags": stats.get("new_tags", []),
         "heat_up": stats.get("heat_up", []), "heat_down": stats.get("heat_down", []),
@@ -385,7 +386,7 @@ def _clusters_payload(u: Unit, c: Corpus, ai: dict, model):
     if not groups:
         return None
     # 次數 / total / unclustered / edges 全部交給 emit.refresh_deterministic 填
-    return {"id": u.key, "h": u.new_hash, "model": model,
+    return {"id": u.key, "pv": PROMPT_VERSION["clusters"], "h": u.new_hash, "model": model,
             "generated_at": cache_mod.now_iso(),
             "groups": groups, "unclustered": [], "edges": [],
             "tag_threshold": config.CLUSTER_MIN_COUNT, "refreshed_at": None}
@@ -394,7 +395,7 @@ def _clusters_payload(u: Unit, c: Corpus, ai: dict, model):
 def _radar_payload(u: Unit, c: Corpus, ai: dict, model):
     table = u.meta["table"]
     why = ai.get("why") if isinstance(ai.get("why"), dict) else {}
-    out = {"id": u.key, "h": u.new_hash, "model": model,
+    out = {"id": u.key, "pv": PROMPT_VERSION["radar"], "h": u.new_hash, "model": model,
            "generated_at": cache_mod.now_iso(),
            "as_of": table.get("as_of", ""), "window": table.get("window", {}),
            "note": _clip(ai.get("note"), 80) or None}
@@ -501,7 +502,8 @@ def generate_unit(u: Unit, c: Corpus, cache: dict, offline: bool = False):
     if p is None:
         return None
     cache_mod.put(cache, u.key, h=u.new_hash, payload=p, model=label,
-                  base_msg_count=u.meta.get("msg_count", 0))
+                  base_msg_count=u.meta.get("msg_count", 0),
+                  prompt_version=PROMPT_VERSION[u.kind])
     return label
 
 

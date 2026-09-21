@@ -10,8 +10,17 @@ if errorlevel 1 (
   exit /b 1
 )
 
+rem AI 洞察(選用)。沒設金鑰、或距上次未滿 AI_MIN_INTERVAL_HOURS 就自己略過。
+rem 刻意不做 exit /b:這一步失敗絕不能擋住資料抓取與發布。
+echo [%date% %time%] insights...
+python make_insights.py
+if errorlevel 1 echo insights step failed, publishing data anyway.
+
 echo [%date% %time%] push...
+rem 必須分兩次 git add:「git add a b」在 b 不存在時整條失敗,
+rem 而那正是首次 AI 成功產出之前的狀態。
 git add docs/data.js
+if exist docs\insights.js git add docs/insights.js
 git diff --cached --quiet
 if errorlevel 1 (
   git commit -m "data: auto update"
