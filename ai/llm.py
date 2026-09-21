@@ -31,7 +31,29 @@ GEMINI_URL = "https://generativelanguage.googleapis.com/v1beta/models/{model}:ge
 OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions"
 
 
-def _post_with_retry(url, headers, payload):
+# 這次執行中已確定「每日配額用盡」的模型。單次執行內有效,不落地。
+# 免費層的每日額度很小(實測 gemini-3.5-flash 僅 20 次/日),回補上百個單元時
+# 必然用完;若不記住,後面每個單元都會再撞一次牆並白等 9 秒重試。
+_exhausted_today: set = set()
+
+
+def _is_daily_quota(resp) -> bool:
+    """區分「每日配額耗盡」與「每分鐘太快」—— 兩者的正確反應完全相反。
+
+    每分鐘限制 → 等幾秒再試是對的。
+    每日配額   → 要等到隔天才重置,重試純屬浪費,該立刻換下一個模型。
+    """
+    try:
+        for d in resp.json().get("error", {}).get("details", []):
+            for v in d.get("violations", []):
+                if "PerDay" in (v.get("quotaId") or ""):
+                    return True
+    except Exception:  # noqa: BLE001
+        pass
+    return False
+
+
+def _post_with_retry(url, headers, payload, model_label: str = ""):
     last_err = None
     for attempt in range(3):
         try:
@@ -46,6 +68,11 @@ def _post_with_retry(url, headers, payload):
         if resp.ok:
             return resp
         last_err = f"{resp.status_code}: {resp.text[:200]}"
+        if resp.status_code == 429 and _is_daily_quota(resp):
+            if model_label:
+                _exhausted_today.add(model_label)
+                print(f"  [llm] {model_label} 今日免費配額已用盡,本次執行不再嘗試")
+            return None
         if resp.status_code in (429, 500, 502, 503, 529) and attempt < 2:
             time.sleep(3 * (attempt + 1))
             continue
@@ -67,6 +94,7 @@ def _call_claude(system, user, model, json_schema=None,
          "content-type": "application/json"},
         {"model": model, "max_tokens": max_tokens, "temperature": temperature,
          "system": system, "messages": messages},
+        model_label=model,
     )
     if resp is None:
         return None
@@ -94,6 +122,7 @@ def _call_gemini(system, user, model, json_schema=None,
         {"x-goog-api-key": config.GEMINI_API_KEY, "Content-Type": "application/json"},
         {"contents": [{"parts": [{"text": system + "\n\n" + user}]}],
          "generationConfig": gen},
+        model_label=model,
     )
     if resp is None:
         return None
@@ -121,6 +150,7 @@ def _call_openrouter(system, user, model, json_schema=None,
         {"Authorization": f"Bearer {config.OPENROUTER_API_KEY}",
          "Content-Type": "application/json"},
         payload,
+        model_label=model,
     )
     if resp is None:
         return None
@@ -176,6 +206,8 @@ def generate(system: str, user: str, *, json_schema=None,
         return None, None
 
     for label, call, model in chain:
+        if model in _exhausted_today:
+            continue          # 今日配額已用盡,不必再撞一次
         try:
             text = call(system, user, model, json_schema, max_tokens, temperature)
         except Exception as exc:  # noqa: BLE001
