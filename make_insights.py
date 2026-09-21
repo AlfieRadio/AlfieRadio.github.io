@@ -167,6 +167,103 @@ def print_plan(units: list, picked: list, c: corpus.Corpus) -> None:
         print("  → 沒有需要重生的單元。")
 
 
+# ---------------------------------------------------------------- 自我測試
+
+def run_selftest(c: corpus.Corpus) -> int:
+    """餵驗證器一組已知的壞輸出,確認「能修就修、該拒才拒」。零網路。"""
+    from ai.jsonout import extract_json
+
+    fails = []
+
+    def check(name, got, want):
+        ok = got == want
+        print(f"  {'✓' if ok else '✗'} {name}")
+        if not ok:
+            fails.append(f"{name}(得到 {got!r},預期 {want!r})")
+
+    print("\n[1] JSON 抽取")
+    check("markdown 圍籬", extract_json('```json\n{"a":1}\n```'), {"a": 1})
+    check("前後夾帶廢話",
+          extract_json('好的,以下是分析結果:\n{"a":1}\n希望對你有幫助!'), {"a": 1})
+    check("字串內含大括號",
+          extract_json('{"detail":"獲利 } 成長","a":2}'), {"detail": "獲利 } 成長", "a": 2})
+    check("多餘的尾逗號", extract_json('{"a":1,}'), {"a": 1})
+    check("被截斷 → None", extract_json('{"a":1,"b":'), None)
+    check("根本不是 JSON → None", extract_json("我不知道"), None)
+    check("頂層是陣列 → None", extract_json("[1,2,3]"), None)
+
+    print("\n[2] 敘事線驗證器")
+    tag = c.ranking(20)[0]
+    u = generators.Unit(key=f"story:{tag.key}", kind="story", new_hash="x", priority=0,
+                        meta={"tag_key": tag.key, "display": tag.display,
+                              "msg_count": tag.count})
+    covered = tag.msg_ids[:20]
+    good_id = covered[0]
+    good_date = c.by_id[good_id]["local_date"]
+
+    p = generators._story_payload(u, c, {
+        "summary": "測試", "state": "爆炸",          # 越界列舉 → 應歸「持平」
+        "beats": [
+            {"date": good_date, "title": "真", "detail": "d",
+             "msg_ids": [good_id, 999999999]},        # 幻覺 id → 應被剔除
+            {"date": "1999-01-01", "title": "壞日期", "detail": "d",
+             "msg_ids": [covered[1]]},                # 日期不在引用中 → 應改為引用的日期
+            {"date": good_date, "title": "無引用", "detail": "d",
+             "msg_ids": [999999998]},                 # 引用全無效 → 整個 beat 丟棄
+        ],
+        "related_tags": ["#不存在的標籤", tag.display],  # 不存在者剔除、自己也剔除
+        "outlook": "o",
+    }, covered, False, "test")
+
+    check("越界 state → 持平", p["state"], "持平")
+    check("幻覺 id 被剔除", p["beats"][0]["msg_ids"] if p["beats"][0]["date"] == good_date else None,
+          [good_id])
+    check("無有效引用的 beat 被丟棄", len(p["beats"]), 2)
+    bad = [b for b in p["beats"] if b["title"] == "壞日期"][0]
+    check("錯誤日期改用引用訊息的日期", bad["date"], c.by_id[covered[1]]["local_date"])
+    check("不存在的 related_tag 被剔除", p["related_tags"], [])
+
+    print("\n[3] 結構性欄位空掉 → 整單拒絕")
+    p2 = generators._story_payload(u, c, {
+        "summary": "s", "state": "升溫",
+        "beats": [{"date": "x", "title": "t", "detail": "d", "msg_ids": [999999999]}],
+    }, covered, False, "test")
+    check("beats 全無效 → 回 None", p2, None)
+
+    print("\n[4] 聚類:同一標籤被兩組認領 → 只算一次")
+    uc = generators.Unit(key="clusters", kind="clusters", new_hash="x", priority=0, meta={})
+    dup = tag.display
+    pc = generators._clusters_payload(uc, c, {"groups": [
+        {"name": "A", "blurb": "b", "tags": [dup]},
+        {"name": "B", "blurb": "b", "tags": [dup]},
+    ]}, "test")
+    fake_cache = {"entries": {"clusters": {"h": "x", "payload": pc, "model": "test",
+                                           "generated_at": None, "base_msg_count": 0,
+                                           "fail_count": 0, "last_fail_at": None}}}
+    from ai import emit
+    emit._refresh_clusters(fake_cache, c)
+    got = fake_cache["entries"]["clusters"]["payload"]["groups"]
+    claimed = sum(len(g["tags"]) for g in got)
+    check("重複認領只保留先者", claimed, 1)
+
+    print("\n[5] 雷達:未知標籤的 why 不會憑空冒出")
+    tbl = c.trend_table()
+    ur = generators.Unit(key="radar", kind="radar", new_hash="x", priority=0,
+                         meta={"table": tbl})
+    pr = generators._radar_payload(ur, c, {"why": {"#完全不存在": "亂講"}}, "test")
+    check("未知標籤不會產生 why",
+          all(d["why"] is None for d in pr["rising"] + pr["falling"] + pr["fresh"]), True)
+
+    print()
+    if fails:
+        print(f"✗ 自我測試失敗 {len(fails)} 項:")
+        for f in fails:
+            print(f"    {f}")
+        return 1
+    print("✓ 自我測試全數通過")
+    return 0
+
+
 # ---------------------------------------------------------------- 主流程
 
 def main() -> int:
@@ -179,6 +276,7 @@ def main() -> int:
     ap.add_argument("--max", type=int, default=None, help="覆寫本次單元上限")
     ap.add_argument("--strict", action="store_true", help="出錯時回傳非 0(給手動除錯用)")
     ap.add_argument("--no-verify", action="store_true", help="跳過對帳斷言")
+    ap.add_argument("--selftest", action="store_true", help="用已知壞輸出測驗證器,零網路")
     args = ap.parse_args()
 
     try:
@@ -186,6 +284,9 @@ def main() -> int:
     except Exception as exc:  # noqa: BLE001
         print(f"[fatal] 無法載入語料:{exc}")
         return 1 if args.strict else 0
+
+    if args.selftest:
+        return run_selftest(c)
 
     if not args.no_verify:
         print("對帳檢查…")
