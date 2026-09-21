@@ -304,6 +304,14 @@ def main() -> int:
 
     units = generators.plan(c, cache)
 
+    # 清掉已不在計畫中的單元(例如標籤被加進 STORY_SKIP_TAGS、或跌破則數門檻)。
+    # 不清的話它們會繼續被 emit 發布到網站上。--only 時不動,避免誤刪。
+    if not args.only:
+        gone = cache_mod.prune(cache, {u.key for u in units})
+        if gone:
+            print(f"[cache] 清除 {len(gone)} 個已不在計畫中的單元:"
+                  f"{', '.join(gone[:6])}{' …' if len(gone) > 6 else ''}")
+
     if args.only:
         units = [u for u in units if u.key == args.only]
         for u in units:

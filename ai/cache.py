@@ -194,6 +194,20 @@ def put(cache: dict, key: str, *, h: str, payload: dict, model: str | None,
     }
 
 
+def prune(cache: dict, planned_keys: set[str]) -> list[str]:
+    """刪除已不在計畫中的單元,回傳被刪掉的鍵。
+
+    emit.build_doc 會把快取裡**每一個**單元都發布出去,所以不清理的話:
+      - 把標籤加進 STORY_SKIP_TAGS 後,已產生的那條敘事線仍留在網站上
+      - 標籤跌破 STORY_MIN_MSGS、或調小 STORY_MAX_TAGS 時同理
+    plan() 是確定性的全量列舉,凡不在其中的就是過時單元。
+    """
+    gone = [k for k in cache.get("entries", {}) if k not in planned_keys]
+    for k in gone:
+        del cache["entries"][k]
+    return gone
+
+
 def mark_fail(cache: dict, key: str) -> None:
     e = cache.setdefault("entries", {}).get(key)
     if e is None:
