@@ -20,7 +20,7 @@ from . import config
 from .corpus import Corpus
 
 SCHEMA_VERSION = 1
-PROMPT_VERSION = {"story": 1, "week": 1, "month": 1, "clusters": 1, "radar": 1}
+PROMPT_VERSION = {"story": 2, "week": 2, "month": 2, "clusters": 2, "radar": 1}
 
 # 規劃時的優先序 —— **廣度優先**:先讓四個子頁都有東西,再把敘事線做滿。
 # 關鍵是 week_of_month:月報是對週報做 reduce,不先把本月的組成週做出來,
@@ -269,6 +269,31 @@ def select(units: list[Unit], max_units: int) -> list[Unit]:
 # 所有 id / 日期 / 次數 / 標籤一律在這裡用語料重新填,或以白名單過濾。
 # 因此模型幻覺出來的 id、標籤、數字沒有任何一條能抵達前端。
 
+def _norm_tags(c: Corpus, raw, limit: int, exclude: str = "") -> list:
+    """把模型寫的標籤正規化成語料裡的正式寫法;不存在的剔除。
+
+    模型很自然會寫「記憶體」而不是「#記憶體」,而 vocabulary 的鍵含 #。
+    不先補 # 就比對,會把**正確**的標籤全部當成幻覺剔除 ——
+    白名單要擋的是編造,不是不同寫法。
+    """
+    out = []
+    for t in (raw or []):
+        if not isinstance(t, str):
+            continue
+        k = t.strip().lower()
+        if not k:
+            continue
+        if not k.startswith("#"):
+            k = "#" + k
+        st = c.tags.get(k)
+        if st is None or st.key == exclude or st.display in out:
+            continue
+        out.append(st.display)
+        if len(out) >= limit:
+            break
+    return out
+
+
 def _ids_filter(raw, allowed: set, limit: int = 4) -> list:
     out = []
     for x in (raw or []):
@@ -308,10 +333,7 @@ def _story_payload(u: Unit, c: Corpus, ai: dict, covered: list,
     state = ai.get("state")
     if state not in ("升溫", "降溫", "持平"):
         state = "持平"
-    vocab = c.vocabulary()
-    related = [c.tags[t.lower()].display for t in (ai.get("related_tags") or [])
-               if isinstance(t, str) and t.lower() in vocab
-               and t.lower() != u.meta["tag_key"]][:6]
+    related = _norm_tags(c, ai.get("related_tags"), 6, exclude=u.meta["tag_key"])
 
     return {
         "id": u.key, "tag": st.display, "tag_key": st.key,
@@ -328,13 +350,11 @@ def _story_payload(u: Unit, c: Corpus, ai: dict, covered: list,
 def _period_payload(u: Unit, c: Corpus, ai: dict, msgs: list, stats: dict,
                     label: str, model):
     allowed = {m["id"] for m in msgs}
-    vocab = c.vocabulary()
     themes = []
     for t in (ai.get("themes") or []):
         themes.append({"title": _clip(t.get("title"), 30),
                        "detail": _clip(t.get("detail"), 160),
-                       "tags": [x for x in (t.get("tags") or [])
-                                if isinstance(x, str) and x.lower() in vocab][:6],
+                       "tags": _norm_tags(c, t.get("tags"), 6),
                        "msg_ids": _ids_filter(t.get("msg_ids"), allowed, 6)})
     themes = [t for t in themes if t["title"]]
     events = []

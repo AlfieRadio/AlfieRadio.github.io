@@ -28,13 +28,16 @@ AI_PROVIDER = os.getenv("AI_PROVIDER", "gemini")
 
 # Gemini(主力,免費):金鑰 https://aistudio.google.com/apikey
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
-# 主模型:官方文件(2026-09 查證)列為一般文字任務的建議預設。
-# 注意 Google 的免費額度已不在公開文件列出,要看自己的儀表板:
-#   https://aistudio.google.com/rate-limit
-# 若你的免費層對這個模型額度很緊,在 .env 覆寫成 lite 版即可。
-GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-3.8-flash")
-# 同金鑰的降級備援:刻意選不同世代的 lite —— 不同模型有各自的每日額度,
-# 主模型額度用盡時才有退路;lite 也較不會被 thinking 吃光輸出。
+# 主模型。**選擇依據是實測,不是版本號大小**(2026-09-21 以本專案金鑰實測):
+#   gemini-3.8 / 3.7 / 3.6-flash → 一律 503「high demand」,免費層拿不到
+#   gemini-3.5-flash / 3.5-flash-lite / 3.1-flash-lite → 正常可用
+#   gemini-2.5-flash → 404「no longer available to new users」(已對新金鑰下架)
+# 硬打不到的模型會讓每個單元白白重試 3 次(退避 3s+6s),113 個單元就是十幾分鐘空轉,
+# 所以主力直接設成實測可用的最高階者。
+# 免費額度看自己的儀表板:https://aistudio.google.com/rate-limit
+GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-3.5-flash")
+# 同金鑰的降級備援:不同模型有各自的每日額度,主模型額度用盡時才有退路;
+# lite 也較不會被 thinking 吃光輸出。
 GEMINI_MODEL_FALLBACK = os.getenv("GEMINI_MODEL_FALLBACK", "gemini-3.5-flash-lite")
 # thinking 模型的「思考」與正文共用 maxOutputTokens;不設上限時思考會膨脹到把正文截斷,
 # 而半截的 JSON 必定解析失敗。0=關閉思考、負數=不送這個參數(某些世代不接受)。
