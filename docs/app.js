@@ -60,8 +60,11 @@ function ingestShards() {
   MSGS = [].concat(...[...SHARDS.keys()].sort().map(k => SHARDS.get(k)))
            .sort((a, b) => a.id - b.id);
   ALL_DATES = [...new Set(MSGS.map(m => m.local_date))].sort();
-  MIN_DATE = ALL_DATES[0] || null;
-  MAX_DATE = ALL_DATES[ALL_DATES.length - 1] || null;
+  // 日期邊界取自 manifest 而非「已載入的資料」—— 否則歷史分片還沒載進來時,
+  // 日期選擇器的 min 會卡在當月,使用者連想選舊日期都選不到。
+  const mm = MANIFEST && MANIFEST.months;
+  MIN_DATE = (mm && mm.length) ? mm[0].from : (ALL_DATES[0] || null);
+  MAX_DATE = (mm && mm.length) ? mm[mm.length - 1].to : (ALL_DATES[ALL_DATES.length - 1] || null);
   if (typeof INS_byId !== "undefined") INS_byId = null;   // 洞察頁的 id 索引要重建
 }
 
@@ -223,6 +226,8 @@ function setTag(tag) {
   const t = (tag || "").toLowerCase();
   tagFilter = (tagFilter === t) ? null : (t || null);
   rerenderAll();
+  // 標籤篩選的語意是「跨全部時間」,所以要確保歷史分片都在
+  if (tagFilter) afterLoad(ensureAllShards());
 }
 function rerenderAll() {
   renderOverview();
@@ -232,9 +237,14 @@ function rerenderAll() {
   renderRank();
   renderWeek();
   renderImportant();
-  // 頁籤⑤(AI 洞察)由 insights-ui.js 提供;沒有那支檔案時整個功能靜默消失
+  renderInsightsIfReady();
+}
+// 頁籤⑤(AI 洞察)由 insights-ui.js 提供,而它是延遲載入的 ——
+// 還沒載進來(或根本沒有那支檔案)時,整個功能靜默不存在。
+function renderInsightsIfReady() {
   if (typeof renderInsights === "function") renderInsights();
 }
+
 // 選了 hashtag → 跨全部時間,日期範圍此刻不作用 → 視覺上暫停日期控制列
 function syncRangeBarState() {
   const bar = document.querySelector(".range-bar");
@@ -454,11 +464,13 @@ function initRange() {
     rangeFrom = from.value || null;
     document.querySelectorAll(".quick button").forEach(b => b.classList.remove("active"));
     rerenderAll();
+    afterLoad(ensureRangeShards());
   });
   to.addEventListener("change", () => {
     rangeTo = to.value || null;
     document.querySelectorAll(".quick button").forEach(b => b.classList.remove("active"));
     rerenderAll();
+    afterLoad(ensureRangeShards());
   });
   document.querySelectorAll(".quick button").forEach(btn => {
     btn.addEventListener("click", () => {
@@ -469,6 +481,8 @@ function initRange() {
       else { rangeFrom = addDays(MAX_DATE, -(days - 1)); rangeTo = MAX_DATE; }
       applyRangeInputs();
       rerenderAll();
+      // 「全部」= 沒有範圍界線 → 需要全量;其餘只補該範圍涵蓋的月份
+      afterLoad(days === 0 ? ensureAllShards() : ensureRangeShards());
     });
   });
 
@@ -491,6 +505,21 @@ function initSearch() {
 
 // ===== 分頁切換 =====
 function switchTab(name) {
+  if (name === "insights") {
+    // 頁籤⑤ 的資產有 300KB,而且它的引用可能指向任何月份
+    ensureInsightsAssets().then(() => {
+      if (typeof renderInsights !== "function") {
+        // insights.js 不存在(首次部署、或 AI 從沒成功過)→ 這個頁籤不該存在。
+        // 原本是在 insights-ui.js 載入時就隱藏,現在它延遲載入了,改在這裡收尾。
+        const btn = document.querySelector('[data-tab="insights"]');
+        if (btn) btn.hidden = true;
+        switchTab("day");
+        return;
+      }
+      renderInsightsIfReady();
+      afterLoad(ensureAllShards());
+    });
+  }
   document.querySelectorAll(".tab").forEach(t => t.classList.toggle("active", t.dataset.tab === name));
   document.querySelectorAll(".panel").forEach(p => p.classList.remove("active"));
   document.getElementById("tab-" + name).classList.add("active");
@@ -547,6 +576,70 @@ function loadNote(text) {
   el.textContent = text ? " ・ " + text : "";
 }
 
+// ---- 分片按需載入 ----
+// 一年的歷史合計約 2MB。**不要**在開站時全部抓下來:預設範圍只有 30 天,
+// 抓回來的十幾片當下一則都用不到,卻會把慢速連線的頻寬吃光,
+// 讓頁面「看起來還在轉」。改成用到才載,並在載入時給提示。
+function shardsForRange(from, to) {
+  if (!MANIFEST) return [];
+  return MANIFEST.months.filter(r => (!from || r.to >= from) && (!to || r.from <= to));
+}
+let LOAD_CHAIN = Promise.resolve();
+function ensureShards(recs, label) {
+  const todo = recs.filter(r => !SHARDS.has(r.m));
+  if (!todo.length) return Promise.resolve(false);
+  // 串成一條鏈:使用者連續切範圍時不會有兩批載入互相覆寫 ingest 結果
+  LOAD_CHAIN = LOAD_CHAIN.then(async () => {
+    const need = todo.filter(r => !SHARDS.has(r.m));
+    if (!need.length) return false;
+    let done = 0;
+    loadNote(`${label} 0/${need.length}`);
+    await Promise.all(need.map(r => loadShard(r).then(() => {
+      done += 1;
+      loadNote(done < need.length ? `${label} ${done}/${need.length}` : "");
+    })));
+    ingestShards();
+    loadNote("");
+    return true;
+  });
+  return LOAD_CHAIN;
+}
+function ensureRangeShards() {
+  return ensureShards(shardsForRange(rangeFrom, rangeTo), "載入資料…");
+}
+// 跨全部時間的操作(標籤篩選、AI 洞察的引用)需要全量
+function ensureAllShards() {
+  return ensureShards(MANIFEST ? MANIFEST.months : [], "載入全部歷史…");
+}
+function afterLoad(p) { p.then(changed => { if (changed) rerenderAll(); }); }
+
+// ---- 頁籤⑤ 的資產延遲載入 ----
+// insights.js 有 300KB,而它只有頁籤⑤ 用得到。放在 <head> 會擋住 app.js,
+// 是首屏第二大的阻塞來源。改成第一次點開頁籤⑤ 才載。
+let INSIGHTS_READY = null;
+function lazyAsset(name) {
+  const el = document.querySelector(`[data-lazy="${name}"]`);
+  return (el && el.getAttribute("data-lazy-src")) || name;
+}
+function ensureInsightsAssets() {
+  if (INSIGHTS_READY) return INSIGHTS_READY;
+  INSIGHTS_READY = (async () => {
+    // 順序不可換:insights-ui.js 頂層就讀 window.TG_INSIGHTS
+    await loadScriptUrl(lazyAsset("insights.js"));
+    await loadScriptUrl(lazyAsset("insights-ui.js"));
+  })();
+  return INSIGHTS_READY;
+}
+function loadScriptUrl(src) {
+  return new Promise(resolve => {
+    const s = document.createElement("script");
+    s.src = src;
+    s.onload = () => resolve(true);
+    s.onerror = () => { console.warn("[lazy] 載入失敗:" + src); resolve(false); };
+    document.head.appendChild(s);
+  });
+}
+
 async function boot() {
   if (!MANIFEST) {
     // 沒有 manifest(例如直接開舊版單檔 data.js)→ 沿用原本的整包載入
@@ -564,19 +657,8 @@ async function boot() {
   initSearch();
   rerenderAll();
 
-  const rest = months.slice(1);
-  if (!rest.length) return;
-
-  // 其餘在背景補。使用者這段期間仍可操作,只是範圍還不完整。
-  let done = 0;
-  loadNote(`載入歷史資料… 0/${rest.length}`);
-  await Promise.all(rest.map(r => loadShard(r).then(() => {
-    done += 1;
-    loadNote(done < rest.length ? `載入歷史資料… ${done}/${rest.length}` : "");
-  })));
-  ingestShards();
-  rerenderAll();          // 使用者的篩選狀態是全域變數,重繪不會弄丟
-  loadNote("");
+  // 預設範圍是最近 30 天,跨月時還需要前一個月那一片 —— 只補這些,不多抓。
+  afterLoad(ensureRangeShards());
 }
 
 boot();

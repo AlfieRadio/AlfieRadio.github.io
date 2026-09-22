@@ -32,7 +32,9 @@ def main() -> int:
         h = hashlib.sha1(f.read_bytes()).hexdigest()[:8]
         # 同時吃 href="x.css" 與 href="x.css?v=舊指紋"
         html = re.sub(
-            rf'((?:src|href)=")({re.escape(name)})(\?v=[0-9a-f]+)?(")',
+            # data-lazy-src 是「延遲載入」的資產(見 index.html 的說明):
+            # 瀏覽器不會自動抓,但一樣要帶內容指紋,否則改版後會拿到舊檔。
+            rf'((?:src|href|data-lazy-src)=")({re.escape(name)})(\?v=[0-9a-f]+)?(")',
             rf'\g<1>\g<2>?v={h}\g<4>',
             html,
         )
