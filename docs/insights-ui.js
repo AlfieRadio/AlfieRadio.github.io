@@ -39,9 +39,16 @@ function insText(s) {
   return highlight(s || "");
 }
 
+/** 洞察頁的標籤用 data-ins-tag 而非 data-tag。
+ *
+ * 用 data-tag 會被 app.js 的委派接走去設定全站篩選,但本頁的內容是預先產生的、
+ * 不受篩選影響 —— 使用者會看到「點了卻沒反應」。這裡改成**導覽**語意:
+ * 有敘事線的就跳到那條,沒有的就帶著篩選跳到排行榜。
+ */
 function insTagChip(tag, extra) {
   const key = (tag || "").toLowerCase();
-  return `<span class="chip filter-chip${tagFilter === key ? " active" : ""}" data-tag="${escapeHtml(key)}">${escapeHtml(tag)}${extra || ""}</span>`;
+  const isCur = INS_sub === "story" && INS_story === key;
+  return `<span class="chip filter-chip${isCur ? " active" : ""}" data-ins-tag="${escapeHtml(key)}">${escapeHtml(tag)}${extra || ""}</span>`;
 }
 
 /** 引用按鈕 + 展開容器。點擊後才把訊息卡渲染進來(避免一次塞幾百張卡)。 */
@@ -52,11 +59,10 @@ function insCite(ids) {
 }
 
 function insUnitHead(u) {
+  // 刻意不顯示模型名稱 —— 對讀者沒有意義,只是雜訊。
+  // (資料裡仍留著 model 欄位,除錯時看得到。)
   const when = u && u.generated_at ? relTime(u.generated_at) : "";
-  const model = u && u.model ? escapeHtml(u.model) : "";
-  if (!when && !model) return "";
-  return `<div class="ins-head">${when ? `更新於 ${escapeHtml(when)}` : ""}`
-       + `${model ? `<span class="ins-model">${model}</span>` : ""}</div>`;
+  return when ? `<div class="ins-head">更新於 ${escapeHtml(when)}</div>` : "";
 }
 
 function insEmpty(msg) {
@@ -286,6 +292,13 @@ function renderInsights() {
     `<button class="week-tab${INS_sub === k ? " active" : ""}" data-ins-sub="${k}">${label}</button>`
   ).join("") + `</div>`;
 
+  // 明說哪些上方控制項對這一頁有效 —— 日期範圍列雖然會變暗,
+  // 但使用者仍可能以為它有作用。搜尋確實有效(可在本頁內縮小範圍)。
+  const scope = `<div class="ins-scope">🧠 本頁由 AI 每日預先整理,`
+    + `涵蓋<b>全部時間</b>,<b>不受上方日期範圍影響</b>`
+    + `${searchTerm ? `;目前搜尋「${escapeHtml(searchTerm)}」已套用至本頁` : "(搜尋仍可在本頁內縮小範圍)"}。`
+    + `所有數字與引用由程式計算,<i>斜體</i>句子為 AI 推測。</div>`;
+
   // 降級③:資料過舊 → 照常顯示,但明說可能未涵蓋最新訊息
   let banner = "";
   const gen = Date.parse(INS_DATA.generated_at || "");
@@ -303,7 +316,7 @@ function renderInsights() {
   else if (INS_sub === "cluster") body = insRenderCluster();
   else body = insRenderRadar();
 
-  el.innerHTML = nav + banner + body;
+  el.innerHTML = nav + scope + banner + body;
 }
 
 
@@ -332,6 +345,23 @@ document.addEventListener("click", e => {
     const t = goto.dataset.insTag;
     if (t && tagFilter !== t) setTag(t);     // setTag 內部會 rerenderAll
     switchTab(goto.dataset.insGoto);
+    return;
+  }
+
+  // 本頁的標籤 = 導覽:有敘事線就跳過去,沒有就帶著篩選跳到排行榜。
+  // (必須排在 data-ins-goto 之後檢查 —— 那顆按鈕也帶 data-ins-tag。)
+  const tagEl = e.target.closest("[data-ins-tag]");
+  if (tagEl) {
+    const t = tagEl.dataset.insTag;
+    const hit = (INS_DATA.storylines || []).some(s => s.tag_key === t);
+    if (hit) {
+      INS_sub = "story"; INS_story = t; INS_lastKey = "";
+      renderInsights();
+      document.getElementById("tab-insights").scrollIntoView({ block: "start" });
+    } else {
+      if (tagFilter !== t) setTag(t);
+      switchTab("rank");
+    }
     return;
   }
 

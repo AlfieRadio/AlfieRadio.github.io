@@ -197,7 +197,15 @@ mark { background: var(--important); color: #1a1200; border-radius: 2px; padding
 .empty { color: var(--muted); padding: 40px 0; text-align: center; }
 
 /* ---- ⑤ AI 洞察 ---- */
-.ins-subnav { margin-bottom: 14px; }
+.ins-subnav { margin-bottom: 12px; }
+/* 說明本頁的適用範圍 —— 上方日期範圍列雖已變暗,仍需一句話講清楚 */
+.ins-scope {
+  font-size: 12px; color: var(--muted); line-height: 1.6;
+  background: var(--surface); border: 1px solid var(--border);
+  border-left: 3px solid var(--accent);
+  border-radius: 8px; padding: 7px 12px; margin-bottom: 12px;
+}
+.ins-scope b { color: var(--text); font-weight: 600; }
 .ins-head { display: flex; align-items: center; gap: 8px; color: var(--muted); font-size: 12px; margin-bottom: 8px; }
 .ins-model {
   border: 1px solid var(--border); border-radius: 10px; padding: 1px 8px;

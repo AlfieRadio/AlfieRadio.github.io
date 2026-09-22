@@ -180,7 +180,12 @@ function rerenderAll() {
 // 選了 hashtag → 跨全部時間,日期範圍此刻不作用 → 視覺上暫停日期控制列
 function syncRangeBarState() {
   const bar = document.querySelector(".range-bar");
-  if (bar) bar.classList.toggle("suspended", !!tagFilter);
+  if (!bar) return;
+  // 兩種情況下日期範圍不作用,都要變暗:
+  //   ① 選了 hashtag → 跨全部時間
+  //   ② 在「AI 洞察」頁 → 內容是每日預先產生的固定期間,不受範圍影響
+  const onInsights = document.querySelector('.tab.active')?.dataset.tab === "insights";
+  bar.classList.toggle("suspended", !!tagFilter || onInsights);
 }
 
 // ===== 篩選狀態列 =====
@@ -426,6 +431,7 @@ function switchTab(name) {
   document.querySelectorAll(".tab").forEach(t => t.classList.toggle("active", t.dataset.tab === name));
   document.querySelectorAll(".panel").forEach(p => p.classList.remove("active"));
   document.getElementById("tab-" + name).classList.add("active");
+  syncRangeBarState();   // 切到/離開 AI 洞察頁時,日期範圍列要跟著變暗/恢復
 }
 document.querySelectorAll(".tab").forEach(tab => {
   tab.addEventListener("click", () => switchTab(tab.dataset.tab));
