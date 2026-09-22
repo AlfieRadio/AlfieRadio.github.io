@@ -16,10 +16,15 @@ echo [%date% %time%] insights...
 python make_insights.py
 if errorlevel 1 echo insights step failed, publishing data anyway.
 
+rem 讓改動立刻生效:GitHub Pages 對靜態檔回 max-age=600,
+rem 沒有指紋的話改完頭 10 分鐘會看到舊版。指紋用內容雜湊 -> 內容沒變就不會動 index.html。
+python stamp_assets.py
+
 echo [%date% %time%] push...
 rem 必須分兩次 git add:「git add a b」在 b 不存在時整條失敗,
 rem 而那正是首次 AI 成功產出之前的狀態。
 git add docs/data.js
+git add docs/index.html
 if exist docs\insights.js git add docs/insights.js
 git diff --cached --quiet
 if errorlevel 1 (
