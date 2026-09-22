@@ -48,7 +48,19 @@ function insText(s) {
 function insTagChip(tag, extra) {
   const key = (tag || "").toLowerCase();
   const isCur = INS_sub === "story" && INS_story === key;
-  return `<span class="chip filter-chip${isCur ? " active" : ""}" data-ins-tag="${escapeHtml(key)}">${escapeHtml(tag)}${extra || ""}</span>`;
+  // 點下去的去處有兩種,外觀必須看得出差別,否則使用者無法預期:
+  //   有敘事線 → 留在本頁跳到那條(加 ● 標記)
+  //   沒有     → 帶著篩選跳到排行榜看全部訊息
+  const hasStory = insHasStory(key);
+  const hint = hasStory ? "查看這個標籤的敘事線" : "到排行榜看這個標籤的全部訊息";
+  return `<span class="chip filter-chip${isCur ? " active" : ""}${hasStory ? " has-story" : ""}"`
+       + ` data-ins-tag="${escapeHtml(key)}" title="${hint}">${escapeHtml(tag)}${extra || ""}</span>`;
+}
+
+let INS_storyKeys = null;
+function insHasStory(key) {
+  if (!INS_storyKeys) INS_storyKeys = new Set((INS_DATA.storylines || []).map(s => s.tag_key));
+  return INS_storyKeys.has(key);
 }
 
 /** 引用按鈕 + 展開容器。點擊後才把訊息卡渲染進來(避免一次塞幾百張卡)。 */
@@ -297,7 +309,9 @@ function renderInsights() {
   const scope = `<div class="ins-scope">🧠 本頁由 AI 每日預先整理,`
     + `涵蓋<b>全部時間</b>,<b>不受上方日期範圍影響</b>`
     + `${searchTerm ? `;目前搜尋「${escapeHtml(searchTerm)}」已套用至本頁` : "(搜尋仍可在本頁內縮小範圍)"}。`
-    + `所有數字與引用由程式計算,<i>斜體</i>句子為 AI 推測。</div>`;
+    + `所有數字與引用由程式計算,<i>斜體</i>句子為 AI 推測。`
+    + `標籤點擊:<span class="chip filter-chip has-story" style="cursor:default">有敘事線</span>`
+    + ` 跳到該條敘事線,其餘跳到排行榜看全部訊息。</div>`;
 
   // 降級③:資料過舊 → 照常顯示,但明說可能未涵蓋最新訊息
   let banner = "";
@@ -357,7 +371,9 @@ document.addEventListener("click", e => {
     if (hit) {
       INS_sub = "story"; INS_story = t; INS_lastKey = "";
       renderInsights();
-      document.getElementById("tab-insights").scrollIntoView({ block: "start" });
+      // 不能用 scrollIntoView:頁首是 sticky,面板頂端會被壓在頁首底下。
+      // 直接回到頁面最上方,使用者從敘事線的標題開始看,位置可預期。
+      window.scrollTo(0, 0);
     } else {
       if (tagFilter !== t) setTag(t);
       switchTab("rank");

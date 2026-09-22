@@ -36,7 +36,8 @@ def _refresh_clusters(cache: dict, c: Corpus) -> None:
         return
     p = e["payload"]
     counts = {t.key: t for t in c.ranking()}
-    qualifying = {t.key for t in c.ranking(config.CLUSTER_MIN_COUNT)}
+    from .generators import cluster_tags   # 與餵給模型的清單必須一致
+    qualifying = {t.key for t in cluster_tags(c)}
 
     claimed: set[str] = set()
     groups = []

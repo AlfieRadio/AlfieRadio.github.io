@@ -20,7 +20,7 @@ from . import config
 from .corpus import Corpus
 
 SCHEMA_VERSION = 1
-PROMPT_VERSION = {"story": 2, "week": 2, "month": 2, "clusters": 2, "radar": 1}
+PROMPT_VERSION = {"story": 2, "week": 2, "month": 2, "clusters": 3, "radar": 1}
 
 # 規劃時的優先序 —— **廣度優先**:先讓四個子頁都有東西,再把敘事線做滿。
 # 關鍵是 week_of_month:月報是對週報做 reduce,不先把本月的組成週做出來,
@@ -123,8 +123,14 @@ def build_period_input(c: Corpus, msgs: list[dict]) -> tuple[str, list[int], boo
 
 
 def cluster_tags(c: Corpus) -> list:
-    """進入聚類的標籤(達門檻者)。"""
-    return c.ranking(config.CLUSTER_MIN_COUNT)
+    """進入主題地圖的標籤:達門檻、且**是主題**。
+
+    非主題標籤會把分組灌水並污染(見 config.NON_TOPIC_TAGS 的說明),
+    所以在餵給模型之前就濾掉;emit 算「未歸類」時也要用同一份清單,
+    否則它們會從未歸類那一區冒回來。
+    """
+    return [t for t in c.ranking(config.CLUSTER_MIN_COUNT)
+            if t.key not in config.NON_TOPIC_TAGS]
 
 
 def build_clusters_input(c: Corpus) -> tuple[str, list[str]]:
@@ -230,7 +236,7 @@ def plan(c: Corpus, cache: dict) -> list[Unit]:
 
     # ---- 敘事線:最貴,且需要去抖動保護
     cands = [t for t in c.ranking(config.STORY_MIN_MSGS)
-             if t.key not in config.STORY_SKIP_TAGS][:config.STORY_MAX_TAGS]
+             if t.key not in config.NON_TOPIC_TAGS][:config.STORY_MAX_TAGS]
     for t in cands:
         text, kept, sampled = build_story_input(c, t.key)
         units.append(Unit(
@@ -379,10 +385,21 @@ def _period_payload(u: Unit, c: Corpus, ai: dict, msgs: list, stats: dict,
 
 
 def _clusters_payload(u: Unit, c: Corpus, ai: dict, model):
-    groups = [{"name": _clip(g.get("name"), 20), "blurb": _clip(g.get("blurb"), 80),
-               "tags": [{"tag": t, "count": 0} for t in (g.get("tags") or [])
-                        if isinstance(t, str)], "total": 0}
-              for g in (ai.get("groups") or []) if g.get("name")]
+    # **必須正規化**:模型常寫「記憶體」而非「#記憶體」,若原樣存下,
+    # emit._refresh_clusters 用含 # 的鍵查表會全部查無 → 整組被清空 → 地圖變 0 組,
+    # 而且上游會回報「成功」(payload 結構合法),是會無聲炸掉的那種失敗。
+    allowed = {t.key for t in cluster_tags(c)}
+    groups = []
+    for g in (ai.get("groups") or []):
+        if not g.get("name"):
+            continue
+        names = _norm_tags(c, g.get("tags"), 999)
+        names = [n for n in names if n.lower() in allowed]   # 非主題標籤不得混入
+        if not names:
+            continue
+        groups.append({"name": _clip(g.get("name"), 20),
+                       "blurb": _clip(g.get("blurb"), 80),
+                       "tags": [{"tag": n, "count": 0} for n in names], "total": 0})
     if not groups:
         return None
     # 次數 / total / unclustered / edges 全部交給 emit.refresh_deterministic 填

@@ -275,6 +275,13 @@ mark { background: var(--important); color: #1a1200; border-radius: 2px; padding
 .ins-minirow { display: flex; align-items: center; gap: 8px; justify-content: space-between; margin-bottom: 4px; font-size: 12px; }
 
 .cluster-group .chips { margin-top: 8px; }
+/* 有敘事線的標籤:點下去會留在本頁跳到那條。沒有的會跳去排行榜,
+   兩種去處不同,外觀必須分得出來,否則點擊結果無法預期。 */
+.chip.has-story::before {
+  content: "●"; font-size: 8px; vertical-align: 1px;
+  margin-right: 4px; color: var(--accent-2);
+}
+.chip.has-story { border: 1px solid var(--accent-2); }
 
 @media (max-width: 720px) {
   header { padding: 14px 16px 12px; }
