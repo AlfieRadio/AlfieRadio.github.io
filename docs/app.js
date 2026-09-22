@@ -362,7 +362,12 @@ function renderOverview() {
 
   const fa = document.getElementById("fetched-at");
   if (DATA.fetched_at) {
-    fa.textContent = "更新於 " + relTime(DATA.fetched_at);
+    // 抓取管線曾經靜默壞掉 12 小時:排程回報成功、但 fetch 那一步被 cmd 吞掉。
+    // 當時「更新於 12 小時前」是灰色小字,看不出異常。3 小時當門檻 ——
+    // 正常每小時跑一次,連續三次都沒成功就一定有問題。
+    const stale = (Date.now() - new Date(DATA.fetched_at).getTime()) >= 3 * 3600e3;
+    fa.textContent = (stale ? "⚠ 資料停更 " : "更新於 ") + relTime(DATA.fetched_at);
+    fa.classList.toggle("stale-warn", stale);
     fa.title = DATA.fetched_at.replace("T", " ").slice(0, 16);
   }
 

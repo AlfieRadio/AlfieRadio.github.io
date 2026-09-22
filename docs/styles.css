@@ -318,3 +318,7 @@ mark { background: var(--important); color: #1a1200; border-radius: 2px; padding
   .day-item .cnt { font-size: 11px; opacity: .7; }
   #day-content { margin-top: 6px; }
 }
+
+/* 資料停更告警。#fetched-at 本身帶 .muted(灰色小字),必須用更高的
+   選擇器權重蓋掉,否則告警還是長得像一般說明文字。 */
+#fetched-at.stale-warn { color: var(--down); font-weight: 600; }
