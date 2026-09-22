@@ -23,7 +23,7 @@ PRELOAD_ID = "preload-latest-shard"
 
 
 def _preload_latest_shard(html: str) -> str:
-    """把「當月分片」的網址預先寫進 HTML,讓瀏覽器立刻開始抓。
+    """把「最新一片」的網址預先寫進 HTML,讓瀏覽器立刻開始抓。
 
     沒有這行的話關鍵路徑是:文件 → manifest.js →(這時才知道網址)→ 分片,
     在高延遲的連線上白白多一趟來回。分片網址帶內容雜湊,所以每次發布都要更新。
@@ -36,9 +36,9 @@ def _preload_latest_shard(html: str) -> str:
     if man.exists():
         txt = man.read_text(encoding="utf-8")
         # manifest 是 json.dumps 的預設分隔符,鍵值之間有空白:{"m": "2026-09", ...}
-        months = re.findall(r'\{\s*"m":\s*"(\d{4}-\d{2})".*?"h":\s*"([0-9a-f]+)"', txt)
+        months = re.findall(r'\{\s*"m":\s*"(\d{4}-W?\d{2})".*?"h":\s*"([0-9a-f]+)"', txt)
         if months:
-            m, h = months[-1]      # manifest 的 months 是升序,最後一個就是當月
+            m, h = months[-1]      # manifest 的 shards 是升序,最後一個就是當週
             tag = (f'<link rel="preload" as="script" id="{PRELOAD_ID}" '
                    f'href="shards/{m}.js?v={h}">')
 

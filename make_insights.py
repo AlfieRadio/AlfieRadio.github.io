@@ -43,7 +43,7 @@ global.window = {};
 new Function("window", fs.readFileSync(docs + "/manifest.js", "utf8"))(global.window);
 let MSGS = [];
 global.window.TG_SHARD = (m, items) => { MSGS = MSGS.concat(items); };
-for (const rec of global.window.TG_MANIFEST.months) {
+for (const rec of global.window.TG_MANIFEST.shards) {
   new Function("window", fs.readFileSync(docs + "/shards/" + rec.m + ".js", "utf8"))(global.window);
 }
 MSGS = MSGS.slice().sort((a, b) => a.id - b.id);

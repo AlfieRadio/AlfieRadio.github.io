@@ -8,14 +8,21 @@
 兩個手段:
   1. 瘦身:刪掉前端可以自行推導的欄位(link / date_utc / iso_week /
      week_range / preview.domain),實測省 33.5%。
-  2. 分片:每個月一個檔。舊月份**內容永遠不變** → 檔名帶內容雜湊 →
-     瀏覽器可以永久快取;每小時真正會變的只有當月那一片。
+  2. 分片:每個 ISO 週一個檔。過去的週**內容永遠不變** → 檔名帶內容雜湊 →
+     瀏覽器可以永久快取;每小時真正會變的只有當週那一片(~44KB)。
+     用「週」而不是「月」的理由:實測這條連線約 1/5 的請求會卡住,
+     而卡頓發生在**傳輸本體**(TTFB 正常),所以痛苦程度與檔案大小成正比。
+     當月整片 150KB 卡到要 13 秒;當週 44KB 只要 3.7 秒。
 
 前端只要先載入 manifest + 最近一片就能開始用,其餘在背景補。
 
 輸出:
-  docs/manifest.js        window.TG_MANIFEST = {...}
-  docs/shards/YYYY-MM.js  window.TG_SHARD("YYYY-MM", [...]);
+  docs/manifest.js          window.TG_MANIFEST = {...}
+  docs/shards/YYYY-Www.js   window.TG_SHARD("YYYY-Www", [...]);
+
+manifest 的 shards[] 每筆是「一段範圍」而非「一個月」:
+from/to(日期)、i0/i1(訊息 id 範圍)、h(內容雜湊)。
+前端只依賴這些範圍欄位,所以日後要換分片粒度不必動前端。
 
 本機的 data/messages.json 維持**完整未瘦身**,它是真相來源,
 fetch.py 的增量/回補邏輯(date_utc、min/max id)都靠它。
@@ -65,14 +72,16 @@ def publish() -> dict:
         raw = json.load(f)
 
     msgs = sorted(raw.get("messages", []), key=lambda m: m["id"])
-    by_month: dict[str, list] = {}
+    groups: dict[str, list] = {}
     for m in msgs:
-        by_month.setdefault(m["local_date"][:7], []).append(m)
+        # 直接用資料自帶的 iso_week(fetch.py::serialize 已經算好)——
+        # 不要在這裡自己再推一次,多一份推導就多一個會漂移的地方。
+        groups.setdefault(m["iso_week"], []).append(m)
 
     os.makedirs(SHARD_DIR, exist_ok=True)
-    months, written = [], []
-    for mo in sorted(by_month):
-        items = [trim(m) for m in by_month[mo]]
+    shards, written = [], []
+    for mo in sorted(groups):
+        items = [trim(m) for m in groups[mo]]
         body = json.dumps(items, ensure_ascii=False, separators=(",", ":"))
         text = f'window.TG_SHARD({json.dumps(mo)},{body});\n'
         # 雜湊取自**檔案內容**,所以內容沒變 → 網址沒變 → 瀏覽器快取續用
@@ -80,11 +89,11 @@ def publish() -> dict:
         path = os.path.join(SHARD_DIR, f"{mo}.js")
         if _write_if_changed(path, text):
             written.append(mo)
-        dates = [m["local_date"] for m in by_month[mo]]
-        ids = [m["id"] for m in by_month[mo]]
+        dates = [m["local_date"] for m in groups[mo]]
+        ids = [m["id"] for m in groups[mo]]
         # i0/i1 是這片的訊息 id 範圍。前端靠它把「AI 洞察的引用 id」直接
         # 對應到需要的月份,只補那幾片 —— 不必為了展開兩則引用就載入整年。
-        months.append({"m": mo, "n": len(items), "from": min(dates),
+        shards.append({"m": mo, "n": len(items), "from": min(dates),
                        "to": max(dates), "i0": min(ids), "i1": max(ids), "h": h,
                        "bytes": len(text.encode("utf-8"))})
 
@@ -94,33 +103,36 @@ def publish() -> dict:
         "fetched_at": raw.get("fetched_at"),
         "tz": raw.get("tz", "Asia/Taipei"),
         "total": len(msgs),
-        "months": months,
+        "shards": shards,
     }
     changed = _write_if_changed(
         os.path.join(DOCS, "manifest.js"),
         "window.TG_MANIFEST = " + json.dumps(manifest, ensure_ascii=False) + ";\n")
 
     # 清掉已不存在的月份(例如把資料砍短之後),否則它們會永遠留在 docs/
-    keep = {f"{d['m']}.js" for d in months}
+    # regex 同時認舊的月分片(YYYY-MM.js)與新的週分片(YYYY-Www.js),
+    # 否則改粒度之後舊檔會永遠留在 docs/ 裡被一起發布。
+    keep = {f"{d['m']}.js" for d in shards}
     removed = []
     for fn in os.listdir(SHARD_DIR):
-        if re.fullmatch(r"\d{4}-\d{2}\.js", fn) and fn not in keep:
+        if re.fullmatch(r"\d{4}-(?:\d{2}|W\d{2})\.js", fn) and fn not in keep:
             os.remove(os.path.join(SHARD_DIR, fn))
             removed.append(fn)
 
-    return {"months": len(months), "written": written, "removed": removed,
+    return {"shards": len(shards), "written": written, "removed": removed,
             "manifest_changed": changed, "total": len(msgs),
-            "bytes": sum(d["bytes"] for d in months)}
+            "bytes": sum(d["bytes"] for d in shards)}
 
 
 def main() -> int:
     r = publish()
-    print(f"✓ 發布 {r['total']:,} 則 / {r['months']} 個月分片,"
+    print(f"✓ 發布 {r['total']:,} 則 / {r['shards']} 片(按 ISO 週),"
           f"合計 {r['bytes']:,} bytes")
     if r["written"]:
         print(f"  更新分片:{', '.join(r['written'])}")
     if r["removed"]:
-        print(f"  移除分片:{', '.join(r['removed'])}")
+        print(f"  移除分片:{len(r['removed'])} 個 "
+              f"({', '.join(r['removed'][:4])}{' …' if len(r['removed']) > 4 else ''})")
     if not r["written"] and not r["manifest_changed"]:
         print("  內容無變化,未寫入任何檔案。")
     return 0

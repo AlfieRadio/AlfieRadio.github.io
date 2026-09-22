@@ -62,7 +62,7 @@ function ingestShards() {
   ALL_DATES = [...new Set(MSGS.map(m => m.local_date))].sort();
   // 日期邊界取自 manifest 而非「已載入的資料」—— 否則歷史分片還沒載進來時,
   // 日期選擇器的 min 會卡在當月,使用者連想選舊日期都選不到。
-  const mm = MANIFEST && MANIFEST.months;
+  const mm = MANIFEST && MANIFEST.shards;
   MIN_DATE = (mm && mm.length) ? mm[0].from : (ALL_DATES[0] || null);
   MAX_DATE = (mm && mm.length) ? mm[mm.length - 1].to : (ALL_DATES[ALL_DATES.length - 1] || null);
   if (typeof INS_byId !== "undefined") INS_byId = null;   // 洞察頁的 id 索引要重建
@@ -229,15 +229,43 @@ function setTag(tag) {
   // 標籤篩選的語意是「跨全部時間」,所以要確保歷史分片都在
   if (tagFilter) afterLoad(ensureAllShards());
 }
+// 只渲染「看得到的那個頁籤」。
+//
+// 原本 rerenderAll() 會把五個頁籤的 HTML 全部重建,即使使用者只看得到一個
+// —— 排行榜那一頁實測會產出 486KB 的 HTML。更重要的是:資料是按需載入的,
+// 全部渲染等於強迫一開站就要有全部資料,按需載入就失去意義了。
+//
+// 每個頁籤各自宣告「我需要哪些資料」,切過去時才補、才畫。
+let ACTIVE_TAB = "day";
+const TAB_DIRTY = { day: true, rank: true, week: true, important: true };
+const TAB_RENDER = {
+  day: renderDay, rank: renderRank, week: renderWeek, important: renderImportant,
+};
+// 頁籤 → 它需要的資料範圍。#重要 是跨全部時間的,所以要全量。
+const TAB_NEEDS = {
+  day: ensureRangeShards, rank: ensureRangeShards,
+  week: ensureRangeShards, important: ensureAllShards,
+};
+
+function renderActiveTab() {
+  if (ACTIVE_TAB === "insights") { renderInsightsIfReady(); return; }
+  const fn = TAB_RENDER[ACTIVE_TAB];
+  if (!fn) return;
+  fn();
+  TAB_DIRTY[ACTIVE_TAB] = false;
+  const need = TAB_NEEDS[ACTIVE_TAB];
+  if (need) {
+    // 資料補齊之後這一頁要重畫;其他頁維持 dirty,切過去時自然會重畫。
+    need().then(changed => { if (changed) { TAB_DIRTY[ACTIVE_TAB] = true; renderActiveTab(); } });
+  }
+}
+
 function rerenderAll() {
   renderOverview();
   renderFilterStatus();
   syncRangeBarState();
-  renderDay();
-  renderRank();
-  renderWeek();
-  renderImportant();
-  renderInsightsIfReady();
+  for (const k of Object.keys(TAB_DIRTY)) TAB_DIRTY[k] = true;
+  renderActiveTab();
 }
 // 頁籤⑤(AI 洞察)由 insights-ui.js 提供,而它是延遲載入的 ——
 // 還沒載進來(或根本沒有那支檔案)時,整個功能靜默不存在。
@@ -445,7 +473,7 @@ function renderOverview() {
     <div class="stat"><b>${todayCount}</b><span>今日則數</span></div>
     <div class="stat"><b>${base.length}</b><span>符合條件</span></div>
     <div class="stat"><b>${computeRanking(base).length}</b><span>不同 hashtag</span></div>
-    <div class="stat"><b>${MSGS.length}</b><span>累積總訊息</span></div>`;
+    <div class="stat"><b>${(MANIFEST && MANIFEST.total) || MSGS.length}</b><span>累積總訊息</span></div>`;
   const rc = document.getElementById("range-count");
   rc.textContent = (rangeFrom || rangeTo) ? `${rangeFrom || "最早"} ~ ${rangeTo || "最新"}` : "全部";
 }
@@ -522,9 +550,11 @@ function switchTab(name) {
       // 之前在這裡呼叫 ensureAllShards(),實測讓開啟頁籤⑤ 要等 ~20 秒。
     });
   }
+  ACTIVE_TAB = name;
   document.querySelectorAll(".tab").forEach(t => t.classList.toggle("active", t.dataset.tab === name));
   document.querySelectorAll(".panel").forEach(p => p.classList.remove("active"));
   document.getElementById("tab-" + name).classList.add("active");
+  if (TAB_DIRTY[name]) renderActiveTab();
   syncRangeBarState();   // 切到/離開 AI 洞察頁時,日期範圍列要跟著變暗/恢復
 }
 document.querySelectorAll(".tab").forEach(tab => {
@@ -584,7 +614,7 @@ function loadNote(text) {
 // 讓頁面「看起來還在轉」。改成用到才載,並在載入時給提示。
 function shardsForRange(from, to) {
   if (!MANIFEST) return [];
-  return MANIFEST.months.filter(r => (!from || r.to >= from) && (!to || r.from <= to));
+  return MANIFEST.shards.filter(r => (!from || r.to >= from) && (!to || r.from <= to));
 }
 let LOAD_CHAIN = Promise.resolve();
 function ensureShards(recs, label) {
@@ -611,13 +641,13 @@ function ensureRangeShards() {
 }
 // 跨全部時間的操作(標籤篩選、按「全部」)需要全量
 function ensureAllShards() {
-  return ensureShards(MANIFEST ? MANIFEST.months : [], "載入全部歷史…");
+  return ensureShards(MANIFEST ? MANIFEST.shards : [], "載入全部歷史…");
 }
 // AI 洞察的引用只需要「那幾則訊息所在的月份」。manifest 每片帶 i0/i1
 // (id 範圍),所以能精準對應 —— 不必為了展開兩則引用就把整年拉下來。
 function ensureShardsForIds(ids) {
   if (!MANIFEST) return Promise.resolve(false);
-  const want = MANIFEST.months.filter(r =>
+  const want = MANIFEST.shards.filter(r =>
     ids.some(id => id >= r.i0 && id <= r.i1));
   return ensureShards(want, "載入引用的訊息…");
 }
@@ -660,8 +690,8 @@ async function boot() {
   }
 
   // 新 → 舊。先把最新那一片載進來,頁面就能用了。
-  const months = MANIFEST.months.slice().sort((a, b) => (a.m < b.m ? 1 : -1));
-  if (months.length) await loadShard(months[0]);
+  const newest = MANIFEST.shards.slice().sort((a, b) => (a.m < b.m ? 1 : -1));
+  if (newest.length) await loadShard(newest[0]);
   ingestShards();
   initRange();
   initSearch();

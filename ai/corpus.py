@@ -47,7 +47,7 @@ def _load_from_shards() -> dict:
     """
     manifest = _js_object(MANIFEST_JS)
     msgs = []
-    for rec in manifest.get("months", []):
+    for rec in manifest.get("shards", []):
         p = os.path.join(SHARD_DIR, f"{rec['m']}.js")
         if not os.path.exists(p):
             continue
