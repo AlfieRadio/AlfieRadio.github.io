@@ -4,11 +4,38 @@
 且**維持純靜態(GitHub Pages)、本機自管、不把頻道資料放外部服務**的核心原則。
 
 關鍵前提(別忘):
-- 資料是 `docs/data.js`(`window.TG_DATA=...`),前端全載入記憶體後 client-side 篩選。
+- 資料是 `docs/manifest.js` + `docs/shards/YYYY-MM.js`(2026-09 起;之前是單一 `docs/data.js`),
+  前端載完仍是全量進記憶體後 client-side 篩選。
 - **真正的成本不是檔案大小,是「`data.js` 每小時都變 → 快取失效、整包重抓」。** 優化要讓「常變的部分小、不變的部分永久快取」。
 - GitHub Pages 自動 brotli,純文字壓 ~5.5x:**實際下載量 ≈ 硬碟大小 ÷ 5**。
 - 中文搜尋用「子字串包含」即可,**不需斷詞索引** —— 這讓暴力做法對中文堪用。
 - ⚠️ 二進位檔 + 每小時更新會把 git 歷史撐爆(同「縮圖」「46k backfill」地雷)。任何大型/常變的二進位**不要每小時 commit 進 git**。
+
+---
+
+## ✅ 階段 1+2 已完成(2026-09-22)
+
+回補到滿一年(15,946 則 / 2025-09-22 起)時,單一 `data.js` 來到 **9.0MB**,
+GitHub Pages 實際送的是 **gzip 2.45MB(不是 brotli,÷3.7 不是 ÷5)**。
+它是 render-blocking 的 classic script,在較慢的連線上整頁卡 60 秒以上,**等同打不開**。
+這正是本文件設的 ~2MB 門檻要防的事,於是階段 1+2 一起做掉了。
+
+**階段 1(瘦身)** —— `publish.py::trim()` 刪掉 `link`/`date_utc`/`iso_week`/
+`week_range`/`preview.domain`,由 `app.js::rehydrate()` 推導回來。
+實測省 **33.5%**(9.0MB → 6.43MB),高於原本估的 20–25%。
+`node verify_rehydrate.js` 拿 `data/messages.json` 全量比對,15,946 則全部相符。
+
+**階段 2(分片)** —— 每月一支 `docs/shards/YYYY-MM.js`,`docs/manifest.js` 列清單
+並帶每片的內容雜湊。`app.js` 先載 manifest + 最新一片就開始渲染,其餘背景併發補。
+
+實測(線上,較慢連線):
+- 首屏阻塞 **2.45MB → ~150KB gzip**,manifest 525ms + 當月分片 1.1s,**2.3 秒可操作**
+- 每小時的 commit 從「整包 data.js」變成 **只動 3 個檔**(manifest + 當月分片 + index.html)
+- 舊分片網址帶內容雜湊 → 永久快取,回訪只需重抓當月那一片
+
+仍未解的:**首次造訪的總量仍是 ~2.1MB**(只是不再阻塞)。真要再降,
+就是「舊分片改成按需載入」——但「全部」範圍的排行與搜尋需要全量,
+屬於階段 3 的範疇。
 
 ---
 
