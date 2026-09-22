@@ -52,7 +52,7 @@ function insTagChip(tag, extra) {
   //   有敘事線 → 留在本頁跳到那條(加 ● 標記)
   //   沒有     → 帶著篩選跳到排行榜看全部訊息
   const hasStory = insHasStory(key);
-  const hint = hasStory ? "查看這個標籤的敘事線" : "到排行榜看這個標籤的全部訊息";
+  const hint = hasStory ? "查看這個標籤的敘事線" : "搜尋這個標籤的全部訊息(跨全部時間)";
   return `<span class="chip filter-chip${isCur ? " active" : ""}${hasStory ? " has-story" : ""}"`
        + ` data-ins-tag="${escapeHtml(key)}" title="${hint}">${escapeHtml(tag)}${extra || ""}</span>`;
 }
@@ -311,7 +311,7 @@ function renderInsights() {
     + `${searchTerm ? `;目前搜尋「${escapeHtml(searchTerm)}」已套用至本頁` : "(搜尋仍可在本頁內縮小範圍)"}。`
     + `所有數字與引用由程式計算,<i>斜體</i>句子為 AI 推測。`
     + `標籤點擊:<span class="chip filter-chip has-story" style="cursor:default">有敘事線</span>`
-    + ` 跳到該條敘事線,其餘跳到排行榜看全部訊息。</div>`;
+    + ` 跳到該條敘事線,其餘當搜尋快捷、列出該標籤跨全部時間的訊息。</div>`;
 
   // 降級③:資料過舊 → 照常顯示,但明說可能未涵蓋最新訊息
   let banner = "";
@@ -375,8 +375,11 @@ document.addEventListener("click", e => {
       // 直接回到頁面最上方,使用者從敘事線的標題開始看,位置可預期。
       window.scrollTo(0, 0);
     } else {
+      // 搜尋快捷:setTag 的篩選本來就是跨全部時間,到「每日內容」
+      // 直接看到該標籤的所有訊息(依日期分組),比排行榜更像搜尋結果。
       if (tagFilter !== t) setTag(t);
-      switchTab("rank");
+      switchTab("day");
+      window.scrollTo(0, 0);
     }
     return;
   }

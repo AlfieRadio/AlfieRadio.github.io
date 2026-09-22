@@ -28,6 +28,36 @@ def refresh_deterministic(cache: dict, c: Corpus) -> None:
     """用最新語料覆寫所有「本來就該由程式算」的欄位。"""
     _refresh_clusters(cache, c)
     _refresh_radar(cache, c)
+    _refresh_digests(cache, c)
+
+
+def _refresh_digests(cache: dict, c: Corpus) -> None:
+    """重算週/月報裡的確定性表格(熱門、新出現、升溫、降溫)。
+
+    這些數字本來就該由程式算,放進這裡的好處是:調整統計規則
+    (例如排除非主題標籤)**不需要重新呼叫 AI**,31 份既有的週月報
+    下一次執行就自動更新,只有模型寫的文字維持原樣。
+    """
+    weeks = sorted(c.weeks().keys())
+    months = sorted(c.months().keys())
+    for key, e in cache.get("entries", {}).items():
+        p = (e or {}).get("payload")
+        if not p:
+            continue
+        if key.startswith("week:"):
+            ks, per = weeks, key[5:]
+            msgs = c.weeks().get(per)
+        elif key.startswith("month:"):
+            ks, per = months, key[6:]
+            msgs = c.months().get(per)
+        else:
+            continue
+        if not msgs:
+            continue
+        i = ks.index(per) if per in ks else 0
+        prev = (c.weeks() if key.startswith("week:") else c.months()).get(
+            ks[i - 1]) if i > 0 else []
+        p.update(c.period_stats(msgs, prev or []))
 
 
 def _refresh_clusters(cache: dict, c: Corpus) -> None:

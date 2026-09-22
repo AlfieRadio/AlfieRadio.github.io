@@ -232,7 +232,9 @@ def run_selftest(c: corpus.Corpus) -> int:
 
     print("\n[4] 聚類:同一標籤被兩組認領 → 只算一次")
     uc = generators.Unit(key="clusters", kind="clusters", new_hash="x", priority=0, meta={})
-    dup = tag.display
+    # 必須挑「主題」標籤:非主題標籤已在 _clusters_payload 被濾掉,
+    # 拿它來測會得到 None,測的就不是重複歸類那條規則了。
+    dup = generators.cluster_tags(c)[0].display
     pc = generators._clusters_payload(uc, c, {"groups": [
         {"name": "A", "blurb": "b", "tags": [dup]},
         {"name": "B", "blurb": "b", "tags": [dup]},

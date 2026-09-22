@@ -19,6 +19,8 @@ from collections import Counter, defaultdict
 from dataclasses import dataclass, field
 from datetime import date, timedelta
 
+from . import config
+
 BASE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 MESSAGES_JSON = os.path.join(BASE, "data", "messages.json")
 DATA_JS = os.path.join(BASE, "docs", "data.js")
@@ -143,7 +145,7 @@ class Corpus:
         """一組訊息的標籤次數(每則去重),語意與 ranking 一致。"""
         c: Counter = Counter()
         for m in msgs:
-            for k in _msg_tag_keys(m):
+            for k in _topic_tag_keys(m):   # 統計一律排除非主題標籤
                 c[k] += 1
         return c
 
@@ -156,25 +158,31 @@ class Corpus:
         prev = self.period_tag_counts(prev_msgs)
         period_start = min((m["local_date"] for m in msgs), default="")
 
-        top = [{"tag": self.tags[k].display, "count": n}
-               for k, n in cur.most_common(15) if k in self.tags]
+        # **每個排序都必須有 tie-break。** 這些 Counter 的插入順序來自
+        # _topic_tag_keys() 回傳的 set,迭代順序每個行程都不同 ——
+        # 只用次數排序時,同分項目會每次互換位置,造成「內容沒變卻判定有變」
+        # → 每小時一個空 commit,永遠不停。
+        ranked = sorted(((n, k) for k, n in cur.items() if k in self.tags),
+                        key=lambda r: (-r[0], r[1]))
+        top = [{"tag": self.tags[k].display, "count": n} for n, k in ranked[:15]]
 
         # 新出現 = 該標籤在全語料的首見日落在本期間內
-        new = [{"tag": self.tags[k].display, "count": n}
-               for k, n in cur.most_common()
-               if k in self.tags and self.tags[k].first_date >= period_start][:10]
+        new = [{"tag": self.tags[k].display, "count": n} for n, k in ranked
+               if self.tags[k].first_date >= period_start][:10]
 
         up, down = [], []
         for k, n in cur.items():
             p = prev.get(k, 0)
             if n - p >= 2 and n >= 3 and (p == 0 or n / p >= 1.8):
-                up.append({"tag": self.tags[k].display, "cur": n, "prev": p})
+                up.append({"tag": self.tags[k].display, "cur": n, "prev": p, "_k": k})
         for k, p in prev.items():
             n = cur.get(k, 0)
             if p >= 4 and n <= p * 0.4:
-                down.append({"tag": self.tags[k].display, "cur": n, "prev": p})
-        up.sort(key=lambda d: -(d["cur"] - d["prev"]))
-        down.sort(key=lambda d: d["cur"] - d["prev"])
+                down.append({"tag": self.tags[k].display, "cur": n, "prev": p, "_k": k})
+        up.sort(key=lambda d: (-(d["cur"] - d["prev"]), d["_k"]))
+        down.sort(key=lambda d: (d["cur"] - d["prev"], d["_k"]))
+        for d in up + down:
+            d.pop("_k")
 
         return {"top_tags": top, "new_tags": new,
                 "heat_up": up[:8], "heat_down": down[:8]}
@@ -217,7 +225,7 @@ class Corpus:
         prev = self.period_tag_counts(prev_msgs)
 
         def recent_ids(k: str, n: int = 5) -> list[int]:
-            return [m["id"] for m in cur_msgs if k in _msg_tag_keys(m)][-n:]
+            return [m["id"] for m in cur_msgs if k in _topic_tag_keys(m)][-n:]
 
         rising = []
         for k, n in cur.items():
@@ -242,7 +250,8 @@ class Corpus:
         fresh = [{"tag": t.display, "tag_key": t.key, "first_date": t.first_date,
                   "count": t.count, "recent_ids": t.msg_ids[-5:]}
                  for t in self.tags.values()
-                 if t.first_date >= fresh_lo and t.count >= 2]
+                 if t.first_date >= fresh_lo and t.count >= 2
+                 and t.key not in config.NON_TOPIC_TAGS]
         fresh.sort(key=lambda d: (d["first_date"], -d["count"]), reverse=True)
 
         return {
@@ -259,6 +268,17 @@ class Corpus:
 def _msg_tag_keys(m: dict) -> set[str]:
     """一則訊息的標籤 key 集合(自動去重),對齊 app.js 的 seen Set。"""
     return {t.lower() for t in (m.get("hashtags") or [])}
+
+
+def _topic_tag_keys(m: dict) -> set[str]:
+    """同上,但濾掉非主題標籤 —— 給所有「統計/排名/趨勢」用。
+
+    #法人 每週都是熱門第一名、#焦點 的增減只反映發文習慣,
+    這些出現在統計裡等於零資訊,還會把真正的主題擠掉。
+    注意:ranking() **不**套這個濾網 —— 頁籤②的排行榜要呈現真實全貌,
+    且前端對帳斷言是拿它跟 app.js 比對的。
+    """
+    return {k for k in _msg_tag_keys(m) if k not in config.NON_TOPIC_TAGS}
 
 
 def load() -> Corpus:
