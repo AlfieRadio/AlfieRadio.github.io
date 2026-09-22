@@ -81,8 +81,11 @@ def publish() -> dict:
         if _write_if_changed(path, text):
             written.append(mo)
         dates = [m["local_date"] for m in by_month[mo]]
+        ids = [m["id"] for m in by_month[mo]]
+        # i0/i1 是這片的訊息 id 範圍。前端靠它把「AI 洞察的引用 id」直接
+        # 對應到需要的月份,只補那幾片 —— 不必為了展開兩則引用就載入整年。
         months.append({"m": mo, "n": len(items), "from": min(dates),
-                       "to": max(dates), "h": h,
+                       "to": max(dates), "i0": min(ids), "i1": max(ids), "h": h,
                        "bytes": len(text.encode("utf-8"))})
 
     manifest = {

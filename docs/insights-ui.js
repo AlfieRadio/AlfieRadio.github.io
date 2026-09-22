@@ -401,9 +401,21 @@ document.addEventListener("click", e => {
     if (!box.hidden) { box.hidden = true; cite.textContent = cite.textContent.replace("▴", "▾"); return; }
     if (!box.innerHTML) {
       const ids = (cite.dataset.msgids || "").split(",").map(Number);
-      // .filter(Boolean) 是對驗證漏網 id 的第二道防線
-      box.innerHTML = ids.map(insMsgById).filter(Boolean).map(m => renderMsg(m, true)).join("")
-                   || insEmpty("找不到對應訊息。");
+      // 原始訊息是按月分片、按需載入的,引用的那幾則不一定已經在記憶體裡。
+      // manifest 每片帶 id 範圍,所以只補這幾個 id 所在的月份(通常 1 片)。
+      box.innerHTML = insEmpty("載入中…");
+      const paint = () => {
+        INS_byId = null;   // 分片進來後索引要重建
+        // .filter(Boolean) 是對驗證漏網 id 的第二道防線
+        box.innerHTML = ids.map(insMsgById).filter(Boolean)
+                           .map(m => renderMsg(m, true)).join("")
+                      || insEmpty("找不到對應訊息。");
+      };
+      if (typeof ensureShardsForIds === "function") {
+        ensureShardsForIds(ids).then(paint);
+      } else {
+        paint();
+      }
     }
     box.hidden = false;
     cite.textContent = cite.textContent.replace("▾", "▴");

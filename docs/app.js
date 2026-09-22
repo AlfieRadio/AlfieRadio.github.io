@@ -517,7 +517,9 @@ function switchTab(name) {
         return;
       }
       renderInsightsIfReady();
-      afterLoad(ensureAllShards());
+      // 刻意**不**在這裡補全量分片:洞察頁的內容是預先產生的,
+      // 只有展開「引用 N 則」時才需要原始訊息,那時再依 id 補對應的月份。
+      // 之前在這裡呼叫 ensureAllShards(),實測讓開啟頁籤⑤ 要等 ~20 秒。
     });
   }
   document.querySelectorAll(".tab").forEach(t => t.classList.toggle("active", t.dataset.tab === name));
@@ -607,9 +609,17 @@ function ensureShards(recs, label) {
 function ensureRangeShards() {
   return ensureShards(shardsForRange(rangeFrom, rangeTo), "載入資料…");
 }
-// 跨全部時間的操作(標籤篩選、AI 洞察的引用)需要全量
+// 跨全部時間的操作(標籤篩選、按「全部」)需要全量
 function ensureAllShards() {
   return ensureShards(MANIFEST ? MANIFEST.months : [], "載入全部歷史…");
+}
+// AI 洞察的引用只需要「那幾則訊息所在的月份」。manifest 每片帶 i0/i1
+// (id 範圍),所以能精準對應 —— 不必為了展開兩則引用就把整年拉下來。
+function ensureShardsForIds(ids) {
+  if (!MANIFEST) return Promise.resolve(false);
+  const want = MANIFEST.months.filter(r =>
+    ids.some(id => id >= r.i0 && id <= r.i1));
+  return ensureShards(want, "載入引用的訊息…");
 }
 function afterLoad(p) { p.then(changed => { if (changed) rerenderAll(); }); }
 
