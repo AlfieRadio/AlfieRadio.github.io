@@ -72,6 +72,16 @@ STORY_CHAR_BUDGET = _int("STORY_CHAR_BUDGET", 24000)
 DIGEST_CHAR_BUDGET = _int("DIGEST_CHAR_BUDGET", 32000)
 CLUSTER_MIN_COUNT = _int("CLUSTER_MIN_COUNT", 5)  # 進入聚類的標籤門檻
 
+# 只有「最近這麼多週」會產生 AI 週報;更舊的期間靠月報涵蓋。
+#
+# 這是回補歷史資料的成本開關:一年的歷史 = 52 個週報單元,但沒人會去翻
+# 一年前的某一週,而月報已經足夠。窗外的週改用 generators._week_skeleton()
+# 合成的**確定性統計摘要**餵給月報,零 AI 呼叫。
+#
+# 注意:窗外但**已經有快取**的週報不會被刪(見 generators.plan() 的規劃條件)。
+# 調小這個值只會「不再新增」,不會讓網站上既有的週報消失。
+DIGEST_WEEK_WINDOW = _int("DIGEST_WEEK_WINDOW", 12)
+
 # **非主題標籤** —— 敘事線與主題地圖都會排除。
 #
 # 判準不是「重不重要」,而是**它是「主題」還是「格式/單元標記」**:

@@ -20,7 +20,7 @@ from . import config
 from .corpus import Corpus
 
 SCHEMA_VERSION = 1
-PROMPT_VERSION = {"story": 2, "week": 2, "month": 2, "clusters": 3, "radar": 1}
+PROMPT_VERSION = {"story": 2, "week": 2, "month": 3, "clusters": 3, "radar": 1}
 
 # 規劃時的優先序 —— **廣度優先**:先讓四個子頁都有東西,再把敘事線做滿。
 # 關鍵是 week_of_month:月報是對週報做 reduce,不先把本月的組成週做出來,
@@ -157,6 +157,42 @@ def build_radar_input(c: Corpus, table: dict) -> str:
     return "\n\n".join(blocks)
 
 
+_SKELETON_CACHE: dict[str, str] = {}
+
+
+def _week_skeleton(c: Corpus, w: str) -> str:
+    """窗外那些週沒有 AI 週報,改用 Python 算好的統計當月報的 reduce 輸入。
+
+    這是「月報不再硬依賴週報」的關鍵。原本 _month_input() 只吃已快取的週報
+    payload,所以一旦停掉歷史週報,歷史月份會永遠卡在「等待成分週」、一篇都
+    產不出來。骨架讓月報照樣有事實可寫,而且**零 AI 呼叫**。
+
+    裡面每個數字都來自 corpus.period_stats(),維持「LLM 永不產生數字」的原則。
+    以行程內的字典記憶結果:plan() 與 _month_input() 都會要同一批週,而一個
+    行程裡 Corpus 不會變。
+    """
+    if w in _SKELETON_CACHE:
+        return _SKELETON_CACHE[w]
+    weeks = c.weeks()
+    msgs = weeks.get(w) or []
+    ks = sorted(weeks.keys())
+    i = ks.index(w) if w in ks else 0
+    st = c.period_stats(msgs, weeks[ks[i - 1]] if i > 0 else [])
+
+    parts = [f"【{c.week_label(w)}】共 {len(msgs)} 則(本週為統計摘要,無逐則內容)"]
+    if st["top_tags"]:
+        parts.append("  熱門:" + " ".join(f"{d['tag']}×{d['count']}" for d in st["top_tags"][:10]))
+    if st["new_tags"]:
+        parts.append("  新出現:" + " ".join(d["tag"] for d in st["new_tags"][:8]))
+    if st["heat_up"]:
+        parts.append("  升溫:" + " ".join(f"{d['tag']} {d['prev']}→{d['cur']}" for d in st["heat_up"][:6]))
+    if st["heat_down"]:
+        parts.append("  降溫:" + " ".join(f"{d['tag']} {d['prev']}→{d['cur']}" for d in st["heat_down"][:6]))
+
+    _SKELETON_CACHE[w] = "\n".join(parts)
+    return _SKELETON_CACHE[w]
+
+
 # ================================================================ 規劃
 
 def plan(c: Corpus, cache: dict) -> list[Unit]:
@@ -198,8 +234,14 @@ def plan(c: Corpus, cache: dict) -> list[Unit]:
     current_month = months[-1] if months else None
     # 本月的組成週優先做 → 才解鎖本月月報
     month_weeks = set(c.weeks_of_month(current_month)) if current_month else set()
+    # 只有最近 DIGEST_WEEK_WINDOW 週會「新增」AI 週報;更舊的靠月報涵蓋。
+    week_window = set(weeks[-config.DIGEST_WEEK_WINDOW:])
 
     for w in weeks:
+        # 窗外的週:已經有快取就繼續列舉(**否則 cache.prune() 會把它刪掉**,
+        # 網站上既有的歷史週報會憑空消失);沒有就跳過,不再新增。
+        if w not in week_window and not cache_mod.get(cache, f"week:{w}"):
+            continue
         msgs = c.weeks()[w]
         ids = sorted(m["id"] for m in msgs)
         text, kept, _ = build_period_input(c, msgs)
@@ -223,8 +265,12 @@ def plan(c: Corpus, cache: dict) -> list[Unit]:
             e = cache_mod.get(cache, f"week:{w}")
             if e and e.get("h"):
                 wk_hashes.append(e["h"])
+            elif w in week_window:
+                missing.append(w)          # 窗內、還沒產出 → 等它先做
             else:
-                missing.append(w)
+                # 窗外:不會有 AI 週報,改用確定性骨架。雜湊取骨架內容,
+                # 這樣該週的資料變動時,月報仍會正確地被判定過期。
+                wk_hashes.append(cache_mod.unit_hash(["wkskel", w, _week_skeleton(c, w)]))
         units.append(Unit(
             key=f"month:{mo}", kind="month",
             priority=PRIORITY["month_current"] if mo == current_month else PRIORITY["month_old"],
@@ -536,12 +582,19 @@ def _prev_period_msgs(c: Corpus, u: Unit) -> list:
 
 
 def _month_input(c: Corpus, u: Unit, cache: dict) -> str:
-    """月報 = 對「已快取的週報」做 reduce,不吃原文(一個月 ~110k 字元塞不進去)。"""
+    """月報 = 對各週做 reduce,不吃原文(一個月 ~110k 字元塞不進去)。
+
+    每一週依序嘗試兩種來源:
+      1. 有 AI 週報快取 → 用它的 one_liner / themes / key_events(原行為)
+      2. 沒有(= 窗外的歷史週)→ 用 _week_skeleton() 的確定性統計摘要
+    第 2 條讓歷史月份不必先產 52 份週報就能寫出月報。
+    """
     blocks = []
     for w in u.meta["weeks"]:
         e = cache_mod.get(cache, "week:" + w)
         p = (e or {}).get("payload")
         if not p:
+            blocks.append(_week_skeleton(c, w))
             continue
         lines = ["【" + p.get("label", w) + "】" + (p.get("one_liner") or "")]
         for t in p.get("themes", []):
