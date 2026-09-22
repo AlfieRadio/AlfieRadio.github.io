@@ -15,7 +15,9 @@ if hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 
 DOCS = pathlib.Path(__file__).parent / "docs"
-ASSETS = ["styles.css", "data.js", "insights.js", "insights-ui.js", "app.js"]
+# 分片(shards/*.js)不在這裡:它們的版本由 manifest.js 內的內容雜湊帶,
+# 見 publish.py。這裡只管 index.html 直接引用的檔案。
+ASSETS = ["styles.css", "manifest.js", "insights.js", "insights-ui.js", "app.js"]
 
 
 def main() -> int:

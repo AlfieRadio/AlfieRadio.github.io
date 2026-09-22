@@ -1,11 +1,69 @@
 // ===== 資料 =====
-const DATA = window.TG_DATA || { channel: {}, messages: [] };
-const MSGS = (DATA.messages || []).slice().sort((a, b) => a.id - b.id);
+// 資料以「按月分片」發布(見 publish.py):manifest.js 只有清單,
+// 每個月一支 shards/YYYY-MM.js。先載最新一片就能開始用,其餘在背景補。
+// 舊月份內容永不變、網址帶內容雜湊 → 瀏覽器可永久快取。
+const MANIFEST = window.TG_MANIFEST || null;
+const DATA = MANIFEST
+  ? { channel: MANIFEST.channel || {}, tz: MANIFEST.tz, fetched_at: MANIFEST.fetched_at }
+  : (window.TG_DATA || { channel: {}, messages: [] });
 const TZ = DATA.tz || "Asia/Taipei";
+const LINK_BASE = (DATA.channel && DATA.channel.link_base) || "";
 
-const ALL_DATES = [...new Set(MSGS.map(m => m.local_date))].sort();
-const MIN_DATE = ALL_DATES[0] || null;
-const MAX_DATE = ALL_DATES[ALL_DATES.length - 1] || null;
+let MSGS = [];
+let ALL_DATES = [];
+let MIN_DATE = null;
+let MAX_DATE = null;
+
+// ---- 瘦身欄位的還原 ----
+// publish.py 刪掉了前端可以自行推導的欄位(link / iso_week / week_range /
+// preview.domain;date_utc 前端根本沒用到),實測省 33.5% 的體積。
+// **iso_week / week_range 必須與 fetch.py::serialize() 逐則完全相同**,
+// 否則週分頁會分錯組。verify_rehydrate.js 會拿 data/messages.json 全量比對。
+function _dayNum(y, m, d) {
+  // 一律用 Date.UTC 做日期算術:它不受瀏覽器所在時區的日光節約影響。
+  return Math.floor(Date.UTC(y, m - 1, d) / 86400000);
+}
+function isoWeekOf(dateStr) {
+  const [y, m, d] = dateStr.split("-").map(Number);
+  const n = _dayNum(y, m, d);
+  const dow = (n + 3) % 7;              // 1970-01-01 是週四 → 0=週一
+  const mon = n - dow, thu = n - dow + 3, sun = n - dow + 6;
+  const thuD = new Date(thu * 86400000);
+  const isoYear = thuD.getUTCFullYear();
+  const week = Math.floor((thu - _dayNum(isoYear, 1, 1)) / 7) + 1;
+  const monD = new Date(mon * 86400000), sunD = new Date(sun * 86400000);
+  return {
+    iso_week: `${isoYear}-W${String(week).padStart(2, "0")}`,
+    // 破折號是 U+2013,與 fetch.py 一致
+    week_range: `${monD.getUTCMonth() + 1}/${monD.getUTCDate()}–${sunD.getUTCMonth() + 1}/${sunD.getUTCDate()}`,
+  };
+}
+function rehydrate(m) {
+  const w = isoWeekOf(m.local_date);
+  m.iso_week = w.iso_week;
+  m.week_range = w.week_range;
+  m.link = `${LINK_BASE}/${m.id}`;
+  const pv = m.preview;
+  if (pv && pv.url && !pv.domain) {
+    try { pv.domain = new URL(pv.url).hostname.replace(/^www\./, ""); }
+    catch (e) { pv.domain = ""; }
+  }
+  return m;
+}
+
+// 分片載入後統一重算衍生狀態
+const SHARDS = new Map();          // month -> messages(已還原)
+window.TG_SHARD = function (month, items) {
+  SHARDS.set(month, items.map(rehydrate));
+};
+function ingestShards() {
+  MSGS = [].concat(...[...SHARDS.keys()].sort().map(k => SHARDS.get(k)))
+           .sort((a, b) => a.id - b.id);
+  ALL_DATES = [...new Set(MSGS.map(m => m.local_date))].sort();
+  MIN_DATE = ALL_DATES[0] || null;
+  MAX_DATE = ALL_DATES[ALL_DATES.length - 1] || null;
+  if (typeof INS_byId !== "undefined") INS_byId = null;   // 洞察頁的 id 索引要重建
+}
 
 function addDays(dateStr, n) {
   const d = new Date(dateStr + "T00:00:00");
@@ -466,6 +524,59 @@ document.addEventListener("click", e => {
 });
 
 // ===== 啟動 =====
-initRange();
-initSearch();
-rerenderAll();
+function loadShard(rec) {
+  return new Promise(resolve => {
+    const s = document.createElement("script");
+    // 網址帶內容雜湊:舊月份內容不變 → 網址不變 → 瀏覽器快取一直有效
+    s.src = `shards/${rec.m}.js?v=${rec.h}`;
+    s.onload = () => resolve(true);
+    s.onerror = () => { console.warn("[shard] 載入失敗:" + rec.m); resolve(false); };
+    document.head.appendChild(s);
+  });
+}
+function loadNote(text) {
+  let el = document.getElementById("load-note");
+  if (!el) {
+    const host = document.getElementById("fetched-at");
+    if (!host) return;
+    el = document.createElement("span");
+    el.id = "load-note";
+    el.className = "muted";
+    host.after(el);
+  }
+  el.textContent = text ? " ・ " + text : "";
+}
+
+async function boot() {
+  if (!MANIFEST) {
+    // 沒有 manifest(例如直接開舊版單檔 data.js)→ 沿用原本的整包載入
+    SHARDS.set("all", ((window.TG_DATA || {}).messages || []).map(m => m));
+    ingestShards();
+    initRange(); initSearch(); rerenderAll();
+    return;
+  }
+
+  // 新 → 舊。先把最新那一片載進來,頁面就能用了。
+  const months = MANIFEST.months.slice().sort((a, b) => (a.m < b.m ? 1 : -1));
+  if (months.length) await loadShard(months[0]);
+  ingestShards();
+  initRange();
+  initSearch();
+  rerenderAll();
+
+  const rest = months.slice(1);
+  if (!rest.length) return;
+
+  // 其餘在背景補。使用者這段期間仍可操作,只是範圍還不完整。
+  let done = 0;
+  loadNote(`載入歷史資料… 0/${rest.length}`);
+  await Promise.all(rest.map(r => loadShard(r).then(() => {
+    done += 1;
+    loadNote(done < rest.length ? `載入歷史資料… ${done}/${rest.length}` : "");
+  })));
+  ingestShards();
+  rerenderAll();          // 使用者的篩選狀態是全域變數,重繪不會弄丟
+  loadNote("");
+}
+
+boot();

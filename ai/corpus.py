@@ -23,31 +23,62 @@ from . import config
 
 BASE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 MESSAGES_JSON = os.path.join(BASE, "data", "messages.json")
-DATA_JS = os.path.join(BASE, "docs", "data.js")
+MANIFEST_JS = os.path.join(BASE, "docs", "manifest.js")
+SHARD_DIR = os.path.join(BASE, "docs", "shards")
 
 
 # ---------------------------------------------------------------- 載入
 
-def _load_raw() -> dict:
-    """優先讀本機完整原始檔;沒有就退回解析已發布的 docs/data.js。
+def _js_object(path: str, prefix_len: int = 0) -> object:
+    """讀 `window.X = <JSON>;` 或 `window.F(<arg>,<JSON>);` 這種發布檔。"""
+    with open(path, encoding="utf-8") as f:
+        raw = f.read()
+    body = raw[raw.index("(" if prefix_len else "="):]
+    start = body.index("[" if prefix_len else "{")
+    end = body.rstrip().rstrip(";").rstrip(")").rindex("]" if prefix_len else "}") + 1
+    return json.loads(body[start:end])
 
-    兩者內容一致,但 data/messages.json 是 gitignored 的本機檔,
-    換機器 / 清掉 data/ 之後只剩 data.js —— 那時仍要能跑。
+
+def _load_from_shards() -> dict:
+    """從已發布的 docs/manifest.js + docs/shards/*.js 重建語料。
+
+    分片是**瘦身過**的(publish.py 刪掉前端可推導的欄位),所以這裡要把
+    AI 端會用到的 iso_week 補回來。用 date.isocalendar(),與 fetch.py 同源。
+    """
+    manifest = _js_object(MANIFEST_JS)
+    msgs = []
+    for rec in manifest.get("months", []):
+        p = os.path.join(SHARD_DIR, f"{rec['m']}.js")
+        if not os.path.exists(p):
+            continue
+        for m in _js_object(p, prefix_len=1):
+            d = _parse_date(m["local_date"])
+            iso = d.isocalendar()
+            monday = d - timedelta(days=iso.weekday - 1)
+            sunday = monday + timedelta(days=6)
+            m["iso_week"] = f"{iso.year}-W{iso.week:02d}"
+            m["week_range"] = f"{monday.month}/{monday.day}–{sunday.month}/{sunday.day}"
+            msgs.append(m)
+    manifest["messages"] = sorted(msgs, key=lambda m: m["id"])
+    return manifest
+
+
+def _load_raw() -> dict:
+    """優先讀本機完整原始檔;沒有就退回解析已發布的分片。
+
+    data/messages.json 是 gitignored 的本機檔且保留完整欄位;
+    換機器 / 清掉 data/ 之後只剩 docs/ 裡的發布檔 —— 那時仍要能跑。
     """
     if os.path.exists(MESSAGES_JSON):
         with open(MESSAGES_JSON, encoding="utf-8") as f:
             return json.load(f)
 
-    if not os.path.exists(DATA_JS):
-        raise FileNotFoundError(
-            "找不到 data/messages.json 也找不到 docs/data.js —— 請先跑 python fetch.py"
-        )
-    with open(DATA_JS, encoding="utf-8") as f:
-        raw = f.read()
-    # 格式固定為:window.TG_DATA = {...};\n
-    start = raw.index("{")
-    end = raw.rstrip().rstrip(";").rindex("}") + 1
-    return json.loads(raw[start:end])
+    if os.path.exists(MANIFEST_JS):
+        return _load_from_shards()
+
+    raise FileNotFoundError(
+        "找不到 data/messages.json 也找不到 docs/manifest.js —— 請先跑 python fetch.py"
+    )
 
 
 def _parse_date(s: str) -> date:

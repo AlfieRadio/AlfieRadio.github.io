@@ -42,7 +42,8 @@ python stamp_assets.py
 
 echo [%date% %time%] STEP push
 rem Two separate "git add" calls: "git add a b" fails entirely if b is absent.
-git add docs/data.js
+git add docs/manifest.js
+git add docs/shards
 git add docs/index.html
 if exist docs\insights.js git add docs/insights.js
 git diff --cached --quiet

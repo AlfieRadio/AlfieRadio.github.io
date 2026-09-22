@@ -225,10 +225,11 @@ def main():
 
         with open(MESSAGES_JSON, "w", encoding="utf-8") as f:
             json.dump(out, f, ensure_ascii=False, indent=2)
-        with open(os.path.join(DOCS_DIR, "data.js"), "w", encoding="utf-8") as f:
-            f.write("window.TG_DATA = ")
-            json.dump(out, f, ensure_ascii=False)
-            f.write(";\n")
+        # 發布成「按月分片 + 清單」而不是單一 data.js:資料滿一年時
+        # 單檔會到 9MB / gzip 2.45MB,而它是 render-blocking 的 script,
+        # 慢一點的連線等同打不開。詳見 publish.py 的說明。
+        import publish
+        publish.publish()
 
         if backfill:
             print(f"✓ Backfill 完成:處理 {changed} 則(含新增 {len(new)} 則),總計 {len(messages)} 則。")

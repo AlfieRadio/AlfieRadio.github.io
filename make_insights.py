@@ -34,12 +34,19 @@ BASE = os.path.dirname(os.path.abspath(__file__))
 
 _PARITY_JS = r"""
 const fs = require("fs");
-const path = process.argv[2], appPath = process.argv[3];
+const docs = process.argv[2], appPath = process.argv[3];
 
-// 載入 data.js(它是 window.TG_DATA = {...};)
+// 資料是按月分片的(publish.py):manifest.js 列出月份,shards/YYYY-MM.js
+// 各自呼叫 window.TG_SHARD(month, items)。這裡把它們全部灌進來,
+// 重現前端載完所有分片之後的 MSGS。
 global.window = {};
-new Function("window", fs.readFileSync(path, "utf8"))(global.window);
-const MSGS = (global.window.TG_DATA.messages || []).slice().sort((a, b) => a.id - b.id);
+new Function("window", fs.readFileSync(docs + "/manifest.js", "utf8"))(global.window);
+let MSGS = [];
+global.window.TG_SHARD = (m, items) => { MSGS = MSGS.concat(items); };
+for (const rec of global.window.TG_MANIFEST.months) {
+  new Function("window", fs.readFileSync(docs + "/shards/" + rec.m + ".js", "utf8"))(global.window);
+}
+MSGS = MSGS.slice().sort((a, b) => a.id - b.id);
 
 // 從 app.js 原始碼裡「抽出真正的 computeRanking 函式」再執行 ——
 // 重寫一份比對等於自己跟自己比,證明不了任何事。
@@ -64,10 +71,10 @@ def verify_parity(c: corpus.Corpus) -> bool:
     這是最可能出現的靜默 bug:# 前綴、大小寫、每則去重任一處漂移,
     洞察頁的數字就會與頁籤②打架,而且不會有任何錯誤訊息。
     """
-    data_js = os.path.join(BASE, "docs", "data.js")
-    app_js = os.path.join(BASE, "docs", "app.js")
-    if not (os.path.exists(data_js) and os.path.exists(app_js)):
-        print("  ⚠ 找不到 docs/data.js 或 docs/app.js,跳過對帳")
+    docs = os.path.join(BASE, "docs")
+    app_js = os.path.join(docs, "app.js")
+    if not (os.path.exists(os.path.join(docs, "manifest.js")) and os.path.exists(app_js)):
+        print("  ⚠ 找不到 docs/manifest.js 或 docs/app.js,跳過對帳")
         return True
 
     tmp = os.path.join(tempfile.gettempdir(), "_parity_check.js")
@@ -76,7 +83,7 @@ def verify_parity(c: corpus.Corpus) -> bool:
     try:
         # 必須明指 utf-8:預設會用系統編碼(Windows 上是 cp950),
         # node 吐回的中文標籤就會炸成 UnicodeDecodeError。
-        r = subprocess.run(["node", tmp, data_js, app_js],
+        r = subprocess.run(["node", tmp, docs, app_js],
                            capture_output=True, text=True,
                            encoding="utf-8", errors="replace", timeout=180)
     except FileNotFoundError:
