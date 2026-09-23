@@ -458,11 +458,15 @@ function renderOverview() {
 
   const fa = document.getElementById("fetched-at");
   if (DATA.fetched_at) {
-    // 抓取管線曾經靜默壞掉 12 小時:排程回報成功、但 fetch 那一步被 cmd 吞掉。
-    // 當時「更新於 12 小時前」是灰色小字,看不出異常。3 小時當門檻 ——
-    // 正常每小時跑一次,連續三次都沒成功就一定有問題。
-    const stale = (Date.now() - new Date(DATA.fetched_at).getTime()) >= 3 * 3600e3;
-    fa.textContent = (stale ? "⚠ 資料停更 " : "更新於 ") + relTime(DATA.fetched_at);
+    // fetched_at 只在「有新訊息」時才前進(fetch.py 沒新訊息就 return、不寫檔),
+    // 所以它量的是「頻道多久沒發文」而不是「排程多久沒跑」—— 頻道安靜時兩者
+    // 在瀏覽器端無法分辨(要分辨就得每小時推一個心跳 commit)。
+    // 門檻依真實資料定:一年 15,950 個間隔裡 >=3h 有 636 次(夜間全中,等於天天誤報)、
+    // >=12h 有 100 次(週末/連假)、>=24h 只有 4 次。所以 24h 才是真的異常。
+    // 排程本身是否健在,看 data/run_daily.log 的 STEP 標記,那才是權威來源。
+    const stale = (Date.now() - new Date(DATA.fetched_at).getTime()) >= 24 * 3600e3;
+    fa.textContent = (stale ? "⚠ 已 " : "資料更新於 ") + relTime(DATA.fetched_at)
+                   + (stale ? " 無新訊息" : "");
     fa.classList.toggle("stale-warn", stale);
     fa.title = DATA.fetched_at.replace("T", " ").slice(0, 16);
   }
