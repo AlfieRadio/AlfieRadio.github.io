@@ -1,0 +1,1 @@
+window.TG_SHARD("2026-W44",[{"id":87615,"local_date":"2026-10-26","local_time":"01:30","hashtags":["#趨勢"],"text":"就是看參與者是誰\n\n#趨勢\n\nhttps://www.instagram.com/reel/De1VSLKggk2/","preview":null},{"id":87616,"local_date":"2026-10-26","local_time":"01:42","hashtags":["#輝達"],"text":"#輝達 果然是超業\n\nhttps://www.instagram.com/reel/De6sheWCYgA/","preview":null}]);
