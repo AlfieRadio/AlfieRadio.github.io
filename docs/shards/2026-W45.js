@@ -1,0 +1,1 @@
+window.TG_SHARD("2026-W45",[{"id":88057,"local_date":"2026-11-02","local_time":"09:09","hashtags":[],"text":"美股存儲、光通信概念股夜盤普漲，SK海力士升逾3%，美光、閃迪、邁威爾科技、Coherent均升約2%；加密貨幣概念股走高，Strategy、Coinbase、BMNR升逾2%；網安股Okta升逾2%，將納入標普500指數。\nhttps://news.futunn.com/t/flash/1003048833/YvMeiribib","preview":null}]);
