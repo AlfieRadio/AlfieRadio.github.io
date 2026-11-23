@@ -1,0 +1,1 @@
+window.TG_SHARD("2026-W48",[{"id":89694,"local_date":"2026-11-23","local_time":"08:52","hashtags":[],"text":"美銀高盛共識：阻止聯儲局加息最快方式，是美股「以死相逼」\nhttps://news.futunn.com/t/post/1005276947/fURQeaqa6e","preview":null},{"id":89695,"local_date":"2026-11-23","local_time":"09:02","hashtags":[],"text":"☝🏻三小","preview":null}]);
